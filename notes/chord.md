@@ -161,3 +161,139 @@ n.find_successor(id)
     else
         return succesor.find_successor(id)
 ```
+
+### Scalable Key Location
+- the simple algorithm is linear O(N)
+    - since it goes from node to node until it reaches the node
+- make it logN by storing additional routing information in a finger table
+- for m bit id
+    - each node maintains m entry routing table
+    - O(logN) entries are distinct
+- ith entry in the table at node n contains id of s that succeeds n by atleast 2^(i-1) on the circle
+    - s is the ith finger of n
+- a finget table entry contains chord id and IP address
+- the first finger of n is the immediate succesor of n
+
+- finget[k] = first node that succeeds (n + 2^(k - 1)) mod 2^m
+- succesor = next node on the circle finger[1]
+- predcessor = previous node on the id circle
+
+- eg:
+- imagine a system with node N1, N8, N14, N21, N32, N38, N42, N48, N51, N56
+    let finger table of node 8 = 
+    N8 + 1   | N14
+    N8 + 2   | N14
+    N8 + 4   | N14
+    N8 + 8   | N21
+    N8 + 16  | N32
+    N8 + 32  | N42
+    - these values (aka which node gets what) is determined by adding powers of 2 to the value 
+    and rounding up to the nearest node as shown above
+    - it only goes upto 32 since we assume m to be 6 aka 6 bit id so we can only store upto 64 N
+    and values are upto + 2^5 i.e. 32 as seen
+    - in this example as seen nodes only need to contain routing information to some subset of nodes
+    - the ids are in increments of 2^i
+    - this makes it easy to find the ith successor of a node here the 3rd successor for N8 would be N14
+        - calculated as 8 + 2^(i-1) % 2^6 = 9 and the closest one to 9 is 14
+    - if the key present in this is greater than the last node present we go to the last node 
+    (in this case N42) and lookup what node corresponds to key k in that nodes finger table
+- so given key k we do a lookup on the node table
+    - lets k = 54 no node exists in 8s finger table
+    - so it finds the closest one to it which is N42
+    - N42 then check the closest one which would be N42 -> N51
+    - now N51 has a neighbor N56 which satifies this key
+
+### Node Joins and Stabilization
+- when a node joins finger table and successor pointers must be updated
+- this is done by a periodically running background job
+- steps
+    1. when n joins calls n.join
+    ```
+    n.join(n')
+        predecessor = nil
+        successor = n'.find_successor(n)
+    ```
+        - n' is an already existing node
+        - it can also run n.create for new systems
+    ```
+    n.create()
+        predecessor = nil
+        successor = n;
+    ```
+
+    2. All nodes periodically run stabilize
+    ```
+    n.stabilize()
+        x = successor.predecessor;
+        if (x ∈ (n, successor))
+            successor = x
+        succesor.notify(n);
+    ```
+    ```
+    n.notify(n')
+        if (predecessor is nil or n' ∈ (predecessor, n))
+            predecessor = n'
+    ```
+    - here stabilize is run to check if the current predecssor is still the node itself of 
+    any other nodepoints to it now (as would occur if a node joins 
+    the network between the current node and its successor)
+    - makes the predecessor the new successor of n if that is the case
+    - the notify is run on n so that the new node can also change its predecessor to n
+
+    3. node periodically calls fix_fingers
+    ```
+    n.fix_fingers()
+        next = next + 1
+        if (next > m)
+            next = 1 // bounds check on circular buffer
+        finger[next] = find_succesor(n + 2^(next - 1))
+    ```
+    - new nodes init table using this
+    - existing nodes update tables
+    
+    4. run check_predecessor periodically to update predecessor if the predecessor fails
+    ```
+    n.check_predecessor()
+        if (predecessor has failed)
+            predecessor = nil
+    ```
+- inconsistent state due to concurrent stabilizations will always be corrected
+- if disjoint sets are produced may need to keep track of topology and fix them
+
+### Impact of node joins on lookups
+- one of 3 affects of a lookup for a node joining before stabilizaiton has finished
+    1. good case: all lookup tables are reasonably current and it finds it in O(logN)
+    2. successor pointers are correct but finger tables are not updated 
+        - slower, but correct, lookups
+    3. final case incorrect successor pointers in the joined regions
+        - or keys may not have migrated to the node
+        - lookup will fail
+        - will have to manually retry
+- unless a large number of nodes join the number of nodes that need to be hopped inbetween before finding the new node with the keys
+    - in the case of not updated pointers and finger table
+    - will still with high probability have lookups of logN
+    - since not too many nodes will be inbetween the 2 node on either side of the key location
+    - once its updated it will stabilize from one of those nodes
+
+### Failure and Replication
+- node relies on the invariant that all nodes know their succsessors
+- if multiple nodes fail (example all nodes in the finger table of a node fail)
+    - it wont be able to tell what node is its successor
+    - this can lead to incorrect lookups/ overshooting and skipping nodes
+        - a case where a node chooses a node from its finger table higher than the actual node
+        - like key 39 from node 8 could be put on node 43 even though node 40 exists 
+        because it thinks that this is the lowest if other nodes fail
+- to mitigate this
+    - each node has a successor list of r nodes
+    - if a node doesnt respond it can use the next successor from its list
+    - all r successors would have to fail simultaneously fail for incorrect ring state to occur
+
+### Voluntary node departures
+- could treat voluntary as failures
+- but we can improve the performance using
+    - could transfer all keys before leaving
+    - could notify predecessor and successor of departure so they can update pointers and tables
+        - also predecessor can update its successor list by removing n and addings 
+        n's successor to its list
+        - successor s will update its predecessor to n's predecessor
+
