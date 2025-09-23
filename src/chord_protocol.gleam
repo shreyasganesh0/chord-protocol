@@ -4,6 +4,8 @@ import gleam/io
 import gleam/int
 import gleam/result
 
+import node
+
 type ParseError {
 
     InvalidArgs
@@ -30,6 +32,8 @@ pub fn main() -> Nil {
 
             io.println("Got num nodes: " <> int.to_string(num_nodes) <> ", num_reqs: " 
                 <> int.to_string(num_reqs))
+
+            node.make_system(num_nodes, num_reqs)
 
         }
 
