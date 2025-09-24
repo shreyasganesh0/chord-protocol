@@ -59,14 +59,28 @@ pub fn make_system(
 
     let sup_build = supervisor.new(supervisor.OneForOne)
 
-    let sub_list: List(process.Subject(NodeMessage)) = []
+
+    let res = start(
+                    0,
+                    num_reqs,
+                    m,
+              )
+    let assert Ok(first_sub) = res 
+    let sup_build = supervisor.add(
+                                sup_build,
+                                supervision.worker(fn(){res}),
+                      )
+
+    let sub_list: List(process.Subject(NodeMessage)) = [first_sub.data]
+    process.send(first_sub.data, Create)
 
     let #(sup_builder, _sub_list) = list.range(1, num_nodes)
-    |> list.fold(#(sup_build, sub_list), fn(acc, _) {
+    |> list.fold(#(sup_build, sub_list), fn(acc, node_id) {
 
                                         let #(builder, sub_list) = acc
                                         
                                         let res = start(
+                                                        node_id,
                                                         num_reqs,
                                                         m,
                                                   )
@@ -76,6 +90,8 @@ pub fn make_system(
                                                                     builder,
                                                                     supervision.worker(fn(){res}),
                                                           )
+
+                                        process.send(sub.data, Join(first_sub.data))
 
                                         #(sup_builder, [sub.data, ..sub_list])
                                     }
@@ -91,17 +107,23 @@ pub fn make_system(
 }
 
 fn start(
+    node_id: Int,
     num_reqs: Int,
     m: Int,
     ) -> actor.StartResult(process.Subject(NodeMessage)) {
 
-    actor.new_with_initialiser(1000, fn(sub) {init(sub, num_reqs, m)})
+    actor.new_with_initialiser(1000, fn(sub) {init( 
+                                                sub, node_id, num_reqs, m
+                                                )
+                                     }
+    )
     |> actor.on_message(handle_node)
     |> actor.start
 }
 
 fn init(
     sub: process.Subject(NodeMessage),
+    node_id: Int,
     num_reqs: Int,
     m: Int,
     ) ->  Result(actor.Initialised(NodeState, NodeMessage, process.Subject(NodeMessage)), String) {
@@ -110,7 +132,7 @@ fn init(
     let init_state = NodeState(
                         seen_reqs: 0,
                         num_reqs: num_reqs,
-                        node_id: 0,
+                        node_id: node_id,
                         m: m,
                         successor_list: [],
                         finger: dict.new(),
