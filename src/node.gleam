@@ -1,3 +1,4 @@
+import gleam/io
 import gleam/int
 import gleam/float
 import gleam/list
@@ -15,9 +16,25 @@ type NodeMessage {
 
     RequestMessage
 
+    StartBackgroundTasks
+
     UpdateSuccessor(node: NodeIdentity)
 
-    FindSuccessor(node: NodeIdentity)
+    FindSuccessor(table_id: Option(Int), sender_sub: process.Subject(NodeMessage), search_id: Int)
+
+    Stabilize
+
+    QueryPredecessor(send_sub: process.Subject(NodeMessage)) 
+
+    StabilizeContd(pred_node: Option(NodeIdentity)) 
+
+    Notify(possible_pred_node: NodeIdentity)
+
+    FixFingers 
+
+    UpdateFinger(table_id: Int, node: NodeIdentity) 
+
+    CheckPredecessor 
 
     Create
 
@@ -39,6 +56,7 @@ type NodeState {
         num_reqs: Int,
         node_id: Int,
         m: Int,
+        next: Int,
         successor_list: List(NodeIdentity),
         finger: Dict(Int, NodeIdentity),
         predecessor: Option(NodeIdentity),
@@ -100,6 +118,7 @@ pub fn make_system(
 
     list.each(sub_list, fn(node) {
 
+                            process.send(node, StartBackgroundTasks)
                         }
     )
     
@@ -134,6 +153,7 @@ fn init(
                         num_reqs: num_reqs,
                         node_id: node_id,
                         m: m,
+                        next: 0,
                         successor_list: [],
                         finger: dict.new(),
                         predecessor: None,
@@ -153,8 +173,200 @@ fn handle_node(
 
         RequestMessage -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " saw req")
+
+            let new_state = NodeState(
+                                ..state,
+                                seen_reqs: state.seen_reqs + 1,
+                            )
+
+            case new_state.seen_reqs < state.num_reqs {
+
+                True -> actor.continue(new_state)
+
+                False -> {
+
+                    actor.continue(new_state)
+                }
+            }
+
+            actor.continue(new_state)
+        }
+
+        StartBackgroundTasks -> {
+
+            process.send(state.self_sub, Stabilize) 
+            process.send(state.self_sub, FixFingers)
+            process.send(state.self_sub, CheckPredecessor)
+            process.send_after(state.self_sub, 1000, RequestMessage)
+            process.send_after(state.self_sub, 500, StartBackgroundTasks)
+
             actor.continue(state)
         }
+
+        Stabilize -> {
+
+            let assert Ok(NodeIdentity(successor_sub, _)) = list.first(state.successor_list)
+
+            process.send(successor_sub, QueryPredecessor(state.self_sub))
+
+            actor.continue(state)
+        }
+
+        QueryPredecessor(send_sub) -> {
+
+            process.send(send_sub, StabilizeContd(state.predecessor))
+
+            actor.continue(state)
+        }
+
+        StabilizeContd(maybe_pred_node) -> {
+
+            let assert Ok(successor) = list.first(state.successor_list)
+            let NodeIdentity(successor_sub, successor_id) = successor
+
+            let new_state = case maybe_pred_node {
+
+                None -> {state}  
+
+                Some(pred_node) -> {
+
+                    
+                    case pred_node.node_id > state.node_id && pred_node.node_id < successor_id {
+
+                        True -> {
+
+                            NodeState(
+                                ..state,
+                                successor_list: [pred_node],
+                            )
+                        }
+
+                        False -> {
+
+                            state
+                        }
+                    }
+                }
+            }
+
+            process.send(successor_sub, Notify(NodeIdentity(state.self_sub, state.node_id)))
+
+            actor.continue(new_state)
+        }
+
+        Notify(possible_pred_node) -> {
+
+            let new_state = case state.predecessor {
+
+                None -> {state}
+
+                Some(node) -> {
+
+                    let NodeIdentity(_pred_sub, pred_id) = node
+
+                    case {possible_pred_node.node_id > pred_id} && 
+                        {possible_pred_node.node_id < state.node_id} {
+
+
+                       True -> {
+
+                            NodeState(
+                                ..state,
+                                predecessor: Some(possible_pred_node),
+                            )
+
+                        } 
+
+                        False -> {
+
+                            state
+                        }
+
+                    }
+
+                }
+            }
+
+            actor.continue(new_state)
+        }
+
+        FixFingers -> {
+            let nxt = case state.next + 1 > state.m {
+
+                True -> {
+
+                    1
+                }
+
+                False -> {
+
+                    state.next + 1
+                }
+            }
+
+            let assert Ok(f_idx) = int.power(2, int.to_float(nxt - 1))
+            process.send(state.self_sub, FindSuccessor(
+                                            Some(nxt),
+                                            state.self_sub,
+                                            float.round(f_idx),
+                                         )
+            )
+            let new_state = NodeState(..state, next: nxt)
+
+            actor.continue(new_state)
+        }
+
+        UpdateFinger(table_id, node_val) -> {
+
+            let new_state = NodeState(
+                                ..state,
+                                finger: dict.insert(state.finger, table_id, node_val),
+                            )
+            actor.continue(new_state)
+        }
+
+        CheckPredecessor -> {
+
+            let new_state = case state.predecessor {
+
+                None -> state
+
+                Some(node) -> {
+
+                    let NodeIdentity(node_sub, _) = node
+
+                    case process.subject_owner(node_sub) {
+
+                        Error(_) -> {
+
+                            NodeState(
+                                ..state,
+                                predecessor: None,
+                            )
+                        }
+
+                        Ok(pid) -> {
+
+                            case process.is_alive(pid) {
+
+                                True -> {state}
+
+                                False -> {
+                                    NodeState(
+                                        ..state,
+                                        predecessor: None,
+                                    )
+                                }
+                            }
+                        }
+
+                    }
+                }
+            }
+            actor.continue(new_state)
+        }
+
 
         Create -> {
 
@@ -177,14 +389,27 @@ fn handle_node(
             actor.continue(new_state)
         }
 
-        FindSuccessor(NodeIdentity(node_sub, node_id)) -> {
+        FindSuccessor(nxt, og_sub, node_id) -> {
 
             let assert Ok(NodeIdentity(successor_sub, successor_id)) = list.first(state.successor_list)
             case node_id > state.node_id && node_id <= successor_id {
 
                 True -> {
 
-                    process.send(node_sub, UpdateSuccessor(NodeIdentity(successor_sub, successor_id)))
+                    case nxt {
+
+                        None -> {
+
+                            process.send(og_sub,
+                            UpdateSuccessor(NodeIdentity(successor_sub, successor_id)))
+                        }
+
+                        Some(next) -> {
+
+                            process.send(og_sub,
+                            UpdateFinger(next, NodeIdentity(successor_sub, successor_id)))
+                        }
+                    }
                 }
 
                 False -> {
@@ -195,7 +420,7 @@ fn handle_node(
                                             NodeIdentity(state.self_sub, state.node_id),
                                             state.finger,
                                         )
-                    process.send(send_to_node, FindSuccessor(NodeIdentity(node_sub, node_id)))
+                    process.send(send_to_node, FindSuccessor(nxt, og_sub, node_id))
                 }
             }
 
@@ -204,7 +429,7 @@ fn handle_node(
 
         Join(chord_sub) -> {
             
-            process.send(chord_sub, FindSuccessor(NodeIdentity(state.self_sub, state.node_id)))
+            process.send(chord_sub, FindSuccessor(None, state.self_sub, state.node_id))
 
             let new_state = NodeState(
                                 ..state,
@@ -212,7 +437,6 @@ fn handle_node(
                             )
 
             actor.continue(new_state)
-            
         }
     }
 }
@@ -230,7 +454,7 @@ fn closest_preceding_node(
     let NodeIdentity(ret_sub, _) = list.range(m, 1)
     |> list.fold_until(curr_node, fn(curr_node, a) {
 
-                                      let assert Ok(NodeIdentity(curr_sub,curr_val)) = dict.get(finger, a) 
+                                      let assert Ok(NodeIdentity(_curr_sub, curr_val)) = dict.get(finger, a) 
 
                                       case {curr_val > curr_id} && {curr_val < node_id}{
 
