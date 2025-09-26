@@ -18,8 +18,6 @@ type NodeMessage {
 
     StartBackgroundTasks
 
-    UpdateSuccessor(node: NodeIdentity)
-
     FindSuccessor(table_id: Option(Int), sender_sub: process.Subject(NodeMessage), search_id: Int)
 
     Stabilize
@@ -57,7 +55,6 @@ type NodeState {
         node_id: Int,
         m: Int,
         next: Int,
-        successor_list: List(NodeIdentity),
         finger: Dict(Int, NodeIdentity),
         predecessor: Option(NodeIdentity),
         self_sub: process.Subject(NodeMessage),
@@ -165,7 +162,6 @@ fn init(
                         node_id: node_id,
                         m: m,
                         next: 1,
-                        successor_list: [],
                         finger: dict.new(),
                         predecessor: None,
                         self_sub: sub,
@@ -219,7 +215,7 @@ fn handle_node(
         Stabilize -> {
 
             io.println("[NODE]: " <> int.to_string(state.node_id) <> " in stabilize")
-            let assert Ok(NodeIdentity(successor_sub, _)) = list.first(state.successor_list)
+            let assert Ok(NodeIdentity(successor_sub, _)) = dict.get(state.finger, 1)
 
             process.send(successor_sub, QueryPredecessor(state.self_sub))
 
@@ -237,7 +233,7 @@ fn handle_node(
         StabilizeContd(maybe_pred_node) -> {
 
             io.println("[NODE]: " <> int.to_string(state.node_id) <> " in stabilizeCnt")
-            let assert Ok(successor) = list.first(state.successor_list)
+            let assert Ok(successor) = dict.get(state.finger, 1)
             let NodeIdentity(successor_sub, successor_id) = successor
 
             let new_state = case maybe_pred_node {
@@ -253,7 +249,7 @@ fn handle_node(
 
                             NodeState(
                                 ..state,
-                                successor_list: [pred_node],
+                                finger: dict.insert(state.finger, 1, pred_node),
                             )
                         }
 
@@ -400,27 +396,17 @@ fn handle_node(
                                             1,
                                             NodeIdentity(state.self_sub, state.node_id),
                                          ),
-                                successor_list:  [NodeIdentity(state.self_sub, state.node_id),
-                                                ..state.successor_list],
                             )
 
             actor.continue(new_state)
         }
 
-        UpdateSuccessor(node) -> {
-
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in update successor")
-            let new_state = NodeState(
-                                ..state,
-                                successor_list: [node, ..state.successor_list],
-                            )
-            actor.continue(new_state)
-        }
 
         FindSuccessor(nxt, og_sub, search_id) -> {
 
-            let assert Ok(NodeIdentity(successor_sub, successor_id)) = list.first(state.successor_list)
+            let assert Ok(NodeIdentity(successor_sub, successor_id)) = dict.get(state.finger, 1)
             io.println("[NODE]: " <> int.to_string(state.node_id) <> " in find_successor using successor id " <> int.to_string(successor_id) <> " and checking search id " <> int.to_string(search_id))
+
             case search_id > state.node_id && search_id <= successor_id {
 
                 True -> {
@@ -430,7 +416,7 @@ fn handle_node(
                         None -> {
 
                             process.send(og_sub,
-                            UpdateSuccessor(NodeIdentity(successor_sub, successor_id)))
+                            UpdateFinger(1, NodeIdentity(successor_sub, successor_id)))
                         }
 
                         Some(next) -> {
