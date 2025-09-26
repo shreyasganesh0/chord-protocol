@@ -92,28 +92,39 @@ pub fn make_system(
     let sub_list: List(process.Subject(NodeMessage)) = [first_sub.data]
     process.send(first_sub.data, Create)
 
-    let #(sup_builder, _sub_list) = list.range(1, num_nodes)
-    |> list.fold(#(sup_build, sub_list), fn(acc, node_id) {
+    let #(sup_builder, _sub_list) = case num_nodes > 1 {
 
-                                        let #(builder, sub_list) = acc
-                                        
-                                        let res = start(
-                                                        node_id,
-                                                        num_reqs,
-                                                        m,
-                                                  )
-                                        let assert Ok(sub) = res 
+        True -> {
+         list.range(1, num_nodes - 1)
+        |> list.fold(#(sup_build, sub_list), fn(acc, node_id) {
 
-                                        let sup_builder = supervisor.add(
-                                                                    builder,
-                                                                    supervision.worker(fn(){res}),
-                                                          )
+                                            let #(builder, sub_list) = acc
+                                            
+                                            let res = start(
+                                                            node_id,
+                                                            num_reqs,
+                                                            m,
+                                                      )
+                                            let assert Ok(sub) = res 
 
-                                        process.send(sub.data, Join(first_sub.data))
+                                            let sup_builder = supervisor.add(
+                                                                        builder,
+                                                                        supervision.worker(fn(){res}),
+                                                              )
 
-                                        #(sup_builder, [sub.data, ..sub_list])
-                                    }
-        )
+                                            process.send(sub.data, Join(first_sub.data))
+
+                                            #(sup_builder, [sub.data, ..sub_list])
+                                        }
+            )
+        } 
+
+        False -> {
+
+            #(sup_build, sub_list)
+
+        }
+    }
     let _ = supervisor.start(sup_builder)
 
     list.each(sub_list, fn(node) {
@@ -153,7 +164,7 @@ fn init(
                         num_reqs: num_reqs,
                         node_id: node_id,
                         m: m,
-                        next: 0,
+                        next: 1,
                         successor_list: [],
                         finger: dict.new(),
                         predecessor: None,
@@ -180,21 +191,22 @@ fn handle_node(
                                 seen_reqs: state.seen_reqs + 1,
                             )
 
-            case new_state.seen_reqs < state.num_reqs {
-
-                True -> actor.continue(new_state)
-
-                False -> {
-
-                    actor.continue(new_state)
-                }
-            }
+            // case new_state.seen_reqs < state.num_reqs {
+            //
+            //     True -> actor.continue(new_state)
+            //
+            //     False -> {
+            //
+            //         actor.continue(new_state)
+            //     }
+            // }
 
             actor.continue(new_state)
         }
 
         StartBackgroundTasks -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in start background")
             process.send(state.self_sub, Stabilize) 
             process.send(state.self_sub, FixFingers)
             process.send(state.self_sub, CheckPredecessor)
@@ -206,6 +218,7 @@ fn handle_node(
 
         Stabilize -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in stabilize")
             let assert Ok(NodeIdentity(successor_sub, _)) = list.first(state.successor_list)
 
             process.send(successor_sub, QueryPredecessor(state.self_sub))
@@ -215,6 +228,7 @@ fn handle_node(
 
         QueryPredecessor(send_sub) -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in query pred")
             process.send(send_sub, StabilizeContd(state.predecessor))
 
             actor.continue(state)
@@ -222,6 +236,7 @@ fn handle_node(
 
         StabilizeContd(maybe_pred_node) -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in stabilizeCnt")
             let assert Ok(successor) = list.first(state.successor_list)
             let NodeIdentity(successor_sub, successor_id) = successor
 
@@ -257,6 +272,7 @@ fn handle_node(
 
         Notify(possible_pred_node) -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in notify")
             let new_state = case state.predecessor {
 
                 None -> {state}
@@ -292,11 +308,12 @@ fn handle_node(
         }
 
         FixFingers -> {
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in fix finger")
             let nxt = case state.next + 1 > state.m {
 
                 True -> {
 
-                    1
+                   1 
                 }
 
                 False -> {
@@ -305,11 +322,13 @@ fn handle_node(
                 }
             }
 
-            let assert Ok(f_idx) = int.power(2, int.to_float(nxt - 1))
+            let assert Ok(offset) = {int.power(2, int.to_float(nxt - 1))} 
+            let f_nodeid = int.to_float(state.node_id) 
+            let f_idx = float.round(offset +. f_nodeid)
             process.send(state.self_sub, FindSuccessor(
                                             Some(nxt),
                                             state.self_sub,
-                                            float.round(f_idx),
+                                            f_idx,
                                          )
             )
             let new_state = NodeState(..state, next: nxt)
@@ -319,6 +338,7 @@ fn handle_node(
 
         UpdateFinger(table_id, node_val) -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in update finger")
             let new_state = NodeState(
                                 ..state,
                                 finger: dict.insert(state.finger, table_id, node_val),
@@ -328,6 +348,7 @@ fn handle_node(
 
         CheckPredecessor -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in check pred")
             let new_state = case state.predecessor {
 
                 None -> state
@@ -370,9 +391,15 @@ fn handle_node(
 
         Create -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in create")
             let new_state = NodeState(
                                 ..state,
-                                predecessor:  None,
+                                predecessor: None,
+                                finger: dict.insert(
+                                            state.finger,
+                                            1,
+                                            NodeIdentity(state.self_sub, state.node_id),
+                                         ),
                                 successor_list:  [NodeIdentity(state.self_sub, state.node_id),
                                                 ..state.successor_list],
                             )
@@ -382,6 +409,7 @@ fn handle_node(
 
         UpdateSuccessor(node) -> {
 
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in update successor")
             let new_state = NodeState(
                                 ..state,
                                 successor_list: [node, ..state.successor_list],
@@ -389,10 +417,11 @@ fn handle_node(
             actor.continue(new_state)
         }
 
-        FindSuccessor(nxt, og_sub, node_id) -> {
+        FindSuccessor(nxt, og_sub, search_id) -> {
 
             let assert Ok(NodeIdentity(successor_sub, successor_id)) = list.first(state.successor_list)
-            case node_id > state.node_id && node_id <= successor_id {
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in find_successor using successor id " <> int.to_string(successor_id) <> " and checking search id " <> int.to_string(search_id))
+            case search_id > state.node_id && search_id <= successor_id {
 
                 True -> {
 
@@ -415,12 +444,12 @@ fn handle_node(
                 False -> {
 
                     let send_to_node = closest_preceding_node(
-                                            node_id, 
+                                            search_id, 
                                             state.m,
                                             NodeIdentity(state.self_sub, state.node_id),
                                             state.finger,
                                         )
-                    process.send(send_to_node, FindSuccessor(nxt, og_sub, node_id))
+                    process.send(send_to_node, FindSuccessor(nxt, og_sub, search_id))
                 }
             }
 
@@ -429,6 +458,7 @@ fn handle_node(
 
         Join(chord_sub) -> {
             
+            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in join")
             process.send(chord_sub, FindSuccessor(None, state.self_sub, state.node_id))
 
             let new_state = NodeState(
@@ -453,6 +483,12 @@ fn closest_preceding_node(
 
     let NodeIdentity(ret_sub, _) = list.range(m, 1)
     |> list.fold_until(curr_node, fn(curr_node, a) {
+                                        
+                                      // let assert Ok(curr_power) = {int.power(2, int.to_float(a - 1)) 
+                                      //                             +. int.to_float(curr_id)}
+                                      //                             |> int.power(2, int.to_float(m))
+
+                                      // let t_idx = float.round(curr_power)
 
                                       let assert Ok(NodeIdentity(_curr_sub, curr_val)) = dict.get(finger, a) 
 
