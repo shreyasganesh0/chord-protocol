@@ -1,7 +1,10 @@
 import gleam/io
 import gleam/int
 import gleam/float
+import gleam/bit_array
+import gleam/order
 import gleam/list
+import gleam/crypto
 import gleam/option.{type Option, Some, None}
 import gleam/dict.{type Dict}
 
@@ -18,7 +21,11 @@ type NodeMessage {
 
     StartBackgroundTasks
 
-    FindSuccessor(table_id: Option(Int), sender_sub: process.Subject(NodeMessage), search_id: Int)
+    FindSuccessor(
+                table_id: Option(Int),
+                sender_sub: process.Subject(NodeMessage),
+                search_id: BitArray
+    )
 
     Stabilize
 
@@ -43,7 +50,7 @@ type NodeIdentity {
 
     NodeIdentity(
         node_sub: process.Subject(NodeMessage),
-        node_id: Int,
+        node_id: BitArray,
     )
 }
 
@@ -52,7 +59,7 @@ type NodeState {
     NodeState(
         seen_reqs: Int,
         num_reqs: Int,
-        node_id: Int,
+        node_id: BitArray,
         m: Int,
         next: Int,
         finger: Dict(Int, NodeIdentity),
@@ -74,9 +81,11 @@ pub fn make_system(
 
     let sup_build = supervisor.new(supervisor.OneForOne)
 
+    let hasher = crypto.new_hasher(crypto.Sha1)
 
     let res = start(
-                    0,
+                    hasher,
+                    "0",
                     num_reqs,
                     m,
               )
@@ -98,7 +107,8 @@ pub fn make_system(
                                             let #(builder, sub_list) = acc
                                             
                                             let res = start(
-                                                            node_id,
+                                                            hasher,
+                                                            int.to_string(node_id),
                                                             num_reqs,
                                                             m,
                                                       )
@@ -134,13 +144,14 @@ pub fn make_system(
 }
 
 fn start(
-    node_id: Int,
+    hasher: crypto.Hasher,
+    node_id: String,
     num_reqs: Int,
     m: Int,
     ) -> actor.StartResult(process.Subject(NodeMessage)) {
 
     actor.new_with_initialiser(1000, fn(sub) {init( 
-                                                sub, node_id, num_reqs, m
+                                                sub, hasher, node_id, num_reqs, m
                                                 )
                                      }
     )
@@ -150,17 +161,20 @@ fn start(
 
 fn init(
     sub: process.Subject(NodeMessage),
-    node_id: Int,
+    hasher: crypto.Hasher,
+    node_id: String,
     num_reqs: Int,
     m: Int,
     ) ->  Result(actor.Initialised(NodeState, NodeMessage, process.Subject(NodeMessage)), String) {
 
+    let hash = crypto.hash_chunk(hasher, bit_array.from_string(node_id))
+    |> crypto.digest
 
     let init_state = NodeState(
                         seen_reqs: 0,
                         num_reqs: num_reqs,
-                        node_id: node_id,
-                        m: m,
+                        node_id: hash,
+                        m: 160,
                         next: 1,
                         finger: dict.new(),
                         predecessor: None,
@@ -180,7 +194,8 @@ fn handle_node(
 
         RequestMessage -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " saw req")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in req msg")
 
             let new_state = NodeState(
                                 ..state,
@@ -200,9 +215,12 @@ fn handle_node(
             actor.continue(new_state)
         }
 
+
         StartBackgroundTasks -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in start background")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
+
             process.send(state.self_sub, Stabilize) 
             process.send(state.self_sub, FixFingers)
             process.send(state.self_sub, CheckPredecessor)
@@ -212,9 +230,12 @@ fn handle_node(
             actor.continue(state)
         }
 
+
         Stabilize -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in stabilize")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
+
             let assert Ok(NodeIdentity(successor_sub, _)) = dict.get(state.finger, 1)
 
             process.send(successor_sub, QueryPredecessor(state.self_sub))
@@ -222,17 +243,22 @@ fn handle_node(
             actor.continue(state)
         }
 
-        QueryPredecessor(send_sub) -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in query pred")
+        QueryPredecessor(send_sub) -> {
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in query pred")
+
             process.send(send_sub, StabilizeContd(state.predecessor))
 
             actor.continue(state)
         }
 
+
         StabilizeContd(maybe_pred_node) -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in stabilizeCnt")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
+
             let assert Ok(successor) = dict.get(state.finger, 1)
             let NodeIdentity(successor_sub, successor_id) = successor
 
@@ -243,7 +269,10 @@ fn handle_node(
                 Some(pred_node) -> {
 
                     
-                    case pred_node.node_id > state.node_id && pred_node.node_id < successor_id {
+                    let lower_bound = bit_array.compare(pred_node.node_id, state.node_id) == order.Gt
+                    let upper_bound = bit_array.compare(pred_node.node_id, successor_id) == order.Lt
+
+                    case lower_bound && upper_bound {
 
                         True -> {
 
@@ -266,9 +295,12 @@ fn handle_node(
             actor.continue(new_state)
         }
 
+
         Notify(possible_pred_node) -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in notify")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in notify")
+
             let new_state = case state.predecessor {
 
                 None -> {state}
@@ -277,9 +309,10 @@ fn handle_node(
 
                     let NodeIdentity(_pred_sub, pred_id) = node
 
-                    case {possible_pred_node.node_id > pred_id} && 
-                        {possible_pred_node.node_id < state.node_id} {
+                    let lower_bound = bit_array.compare(possible_pred_node.node_id, pred_id) == order.Gt
+                    let upper_bound = bit_array.compare(possible_pred_node.node_id, pred_id) == order.Lt
 
+                    case {lower_bound} && {upper_bound} {
 
                        True -> {
 
@@ -303,8 +336,11 @@ fn handle_node(
             actor.continue(new_state)
         }
 
+
         FixFingers -> {
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in fix finger")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
+
             let nxt = case state.next + 1 > state.m {
 
                 True -> {
@@ -318,13 +354,14 @@ fn handle_node(
                 }
             }
 
-            let assert Ok(offset) = {int.power(2, int.to_float(nxt - 1))} 
-            let f_nodeid = int.to_float(state.node_id) 
-            let f_idx = float.round(offset +. f_nodeid)
+            //let shifted_id = state.node_id << {nxt - 1} 
+            todo as "have to figure out a way to manipulate node id bit array"
+            //let assert Ok(offset) = {int.power(2, int.to_float(nxt - 1))} 
+            //let f_idx = float.round(offset +. f_nodeid)
             process.send(state.self_sub, FindSuccessor(
                                             Some(nxt),
                                             state.self_sub,
-                                            f_idx,
+                                            state.node_id, //have to add the next offset value to this
                                          )
             )
             let new_state = NodeState(..state, next: nxt)
@@ -332,9 +369,12 @@ fn handle_node(
             actor.continue(new_state)
         }
 
+
         UpdateFinger(table_id, node_val) -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in update finger")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in update fingers")
+
             let new_state = NodeState(
                                 ..state,
                                 finger: dict.insert(state.finger, table_id, node_val),
@@ -342,9 +382,12 @@ fn handle_node(
             actor.continue(new_state)
         }
 
+
         CheckPredecessor -> {
 
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in check pred")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in check pred")
+
             let new_state = case state.predecessor {
 
                 None -> state
@@ -385,29 +428,21 @@ fn handle_node(
         }
 
 
-        Create -> {
-
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in create")
-            let new_state = NodeState(
-                                ..state,
-                                predecessor: None,
-                                finger: dict.insert(
-                                            state.finger,
-                                            1,
-                                            NodeIdentity(state.self_sub, state.node_id),
-                                         ),
-                            )
-
-            actor.continue(new_state)
-        }
-
-
         FindSuccessor(nxt, og_sub, search_id) -> {
 
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            let assert Ok(s_searchid) = bit_array.to_string(search_id)
             let assert Ok(NodeIdentity(successor_sub, successor_id)) = dict.get(state.finger, 1)
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in find_successor using successor id " <> int.to_string(successor_id) <> " and checking search id " <> int.to_string(search_id))
+            let assert Ok(s_successorid) = bit_array.to_string(successor_id)
 
-            case search_id > state.node_id && search_id <= successor_id {
+            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " 
+            <> s_successorid <> " and checking search id " <> s_searchid)
+    
+
+            let lower_bound = bit_array.compare(search_id, state.node_id) == order.Gt
+            let upper_bound = bit_array.compare(search_id, successor_id) |> order.to_int
+
+            case lower_bound && upper_bound == -1 || upper_bound == 0 {
 
                 True -> {
 
@@ -442,9 +477,31 @@ fn handle_node(
             actor.continue(state)
         }
 
+
+        Create -> {
+
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid <> " in create")
+
+            let new_state = NodeState(
+                                ..state,
+                                predecessor: None,
+                                finger: dict.insert(
+                                            state.finger,
+                                            1,
+                                            NodeIdentity(state.self_sub, state.node_id),
+                                         ),
+                            )
+
+            actor.continue(new_state)
+        }
+
+
         Join(chord_sub) -> {
             
-            io.println("[NODE]: " <> int.to_string(state.node_id) <> " in join")
+            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            io.println("[NODE]: " <> s_nodeid <> " in create")
+
             process.send(chord_sub, FindSuccessor(None, state.self_sub, state.node_id))
 
             let new_state = NodeState(
@@ -459,16 +516,16 @@ fn handle_node(
 
 
 fn closest_preceding_node(
-    node_id: Int,
+    search_id: BitArray,
     m: Int,
-    curr_node: NodeIdentity,
+    sender_node: NodeIdentity,
     finger: Dict(Int, NodeIdentity)
     ) -> process.Subject(NodeMessage) {
 
-    let NodeIdentity(curr_sub, curr_id) = curr_node
+    let NodeIdentity(sender_sub, sender_id) = sender_node
 
     let NodeIdentity(ret_sub, _) = list.range(m, 1)
-    |> list.fold_until(curr_node, fn(curr_node, a) {
+    |> list.fold_until(sender_node, fn(sender_node, a) {
                                         
                                       // let assert Ok(curr_power) = {int.power(2, int.to_float(a - 1)) 
                                       //                             +. int.to_float(curr_id)}
@@ -477,12 +534,14 @@ fn closest_preceding_node(
                                       // let t_idx = float.round(curr_power)
 
                                       let assert Ok(NodeIdentity(_curr_sub, curr_val)) = dict.get(finger, a) 
+                                      let lower_bound = bit_array.compare(curr_val, sender_id) == order.Gt
+                                      let upper_bound = bit_array.compare(curr_val, search_id) == order.Lt
 
-                                      case {curr_val > curr_id} && {curr_val < node_id}{
+                                      case {lower_bound} && {upper_bound}{
 
-                                          True -> list.Stop(NodeIdentity(curr_sub, curr_val))
+                                          True -> list.Stop(NodeIdentity(sender_sub, curr_val))
 
-                                          False -> list.Continue(curr_node)
+                                          False -> list.Continue(sender_node)
                                       }
                                   }
         )
