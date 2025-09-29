@@ -1,6 +1,5 @@
 import gleam/io
 import gleam/int
-import gleam/float
 import gleam/bit_array
 import gleam/order
 import gleam/list
@@ -14,6 +13,7 @@ import gleam/otp/supervision
 
 import gleam/erlang/process
 
+import utls
 
 type NodeMessage {
 
@@ -74,10 +74,8 @@ pub fn make_system(
     ) {
 
     let main_sub = process.new_subject()
-
-    let assert Ok(tmp) = {int.to_float(num_nodes) |> float.logarithm}
-    let assert Ok(log_two) = float.logarithm(2.0)
-    let m = {{tmp /. log_two } |> float.round} + 1
+    
+    let m = 160
 
     let sup_build = supervisor.new(supervisor.OneForOne)
 
@@ -174,7 +172,7 @@ fn init(
                         seen_reqs: 0,
                         num_reqs: num_reqs,
                         node_id: hash,
-                        m: 160,
+                        m: m,
                         next: 1,
                         finger: dict.new(),
                         predecessor: None,
@@ -354,14 +352,14 @@ fn handle_node(
                 }
             }
 
+            let check_id = utls.get_id_from_table_idx(nxt, state.node_id)
             //let shifted_id = state.node_id << {nxt - 1} 
-            todo as "have to figure out a way to manipulate node id bit array"
             //let assert Ok(offset) = {int.power(2, int.to_float(nxt - 1))} 
             //let f_idx = float.round(offset +. f_nodeid)
             process.send(state.self_sub, FindSuccessor(
                                             Some(nxt),
                                             state.self_sub,
-                                            state.node_id, //have to add the next offset value to this
+                                            check_id, //have to add the next offset value to this
                                          )
             )
             let new_state = NodeState(..state, next: nxt)
