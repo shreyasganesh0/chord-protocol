@@ -168,6 +168,10 @@ fn init(
     let hash = crypto.hash_chunk(hasher, bit_array.from_string(node_id))
     |> crypto.digest
 
+    echo hash
+
+    assert bit_array.bit_size(hash) == 160
+
     let init_state = NodeState(
                         seen_reqs: 0,
                         num_reqs: num_reqs,
@@ -192,8 +196,8 @@ fn handle_node(
 
         RequestMessage -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in req msg")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in req msg")
 
             let new_state = NodeState(
                                 ..state,
@@ -216,8 +220,8 @@ fn handle_node(
 
         StartBackgroundTasks -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
 
             process.send(state.self_sub, Stabilize) 
             process.send(state.self_sub, FixFingers)
@@ -231,8 +235,8 @@ fn handle_node(
 
         Stabilize -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
 
             let assert Ok(NodeIdentity(successor_sub, _)) = dict.get(state.finger, 1)
 
@@ -243,8 +247,8 @@ fn handle_node(
 
 
         QueryPredecessor(send_sub) -> {
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in query pred")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in query pred")
 
             process.send(send_sub, StabilizeContd(state.predecessor))
 
@@ -254,8 +258,8 @@ fn handle_node(
 
         StabilizeContd(maybe_pred_node) -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
 
             let assert Ok(successor) = dict.get(state.finger, 1)
             let NodeIdentity(successor_sub, successor_id) = successor
@@ -296,8 +300,8 @@ fn handle_node(
 
         Notify(possible_pred_node) -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in notify")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in notify")
 
             let new_state = case state.predecessor {
 
@@ -336,8 +340,8 @@ fn handle_node(
 
 
         FixFingers -> {
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
 
             let nxt = case state.next + 1 > state.m {
 
@@ -370,8 +374,8 @@ fn handle_node(
 
         UpdateFinger(table_id, node_val) -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in update fingers")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in update fingers")
 
             let new_state = NodeState(
                                 ..state,
@@ -383,8 +387,8 @@ fn handle_node(
 
         CheckPredecessor -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in check pred")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid  <> " in check pred")
 
             let new_state = case state.predecessor {
 
@@ -428,13 +432,13 @@ fn handle_node(
 
         FindSuccessor(nxt, og_sub, search_id) -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            let assert Ok(s_searchid) = bit_array.to_string(search_id)
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // let assert Ok(s_searchid) = bit_array.to_string(search_id)
             let assert Ok(NodeIdentity(successor_sub, successor_id)) = dict.get(state.finger, 1)
-            let assert Ok(s_successorid) = bit_array.to_string(successor_id)
+            //let assert Ok(s_successorid) = bit_array.to_string(successor_id)
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " 
-            <> s_successorid <> " and checking search id " <> s_searchid)
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " 
+            //<> s_successorid <> " and checking search id " <> s_searchid)
     
 
             let lower_bound = bit_array.compare(search_id, state.node_id) == order.Gt
@@ -478,8 +482,8 @@ fn handle_node(
 
         Create -> {
 
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid <> " in create")
+            //let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            //io.println("[NODE]: " <> s_nodeid <> " in create")
 
             let new_state = NodeState(
                                 ..state,
@@ -497,8 +501,8 @@ fn handle_node(
 
         Join(chord_sub) -> {
             
-            let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
-            io.println("[NODE]: " <> s_nodeid <> " in create")
+            // let assert Ok(s_nodeid) = bit_array.to_string(state.node_id)
+            // io.println("[NODE]: " <> s_nodeid <> " in create")
 
             process.send(chord_sub, FindSuccessor(None, state.self_sub, state.node_id))
 
