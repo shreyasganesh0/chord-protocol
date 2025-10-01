@@ -1,119 +1,134 @@
-import gleam/bit_array
-import gleam/list
+fn parse_bits(
+    curr_idx: Int,
+    t_idx: Int,
+    carry: Int,
+    ret_bits: BitArray,
+    b: BitArray
+    ) -> BitArray {
+
+
+    case b {
+
+        <<first_bit:size(1), rest:bits>> -> {
+
+            let curr_bit = <<first_bit:size(1)>>
+
+            let #(car, ret) = case curr_idx < {t_idx - 1} {
+
+                True -> {
+                    
+                    #(0, <<curr_bit:bits, ret_bits:bits>>)
+                }
+
+                False -> {
+
+                    case curr_idx == {t_idx - 1} {
+                        
+                        //0 + y + 1 cases
+
+                        True -> {
+
+                            case curr_bit {
+
+                                <<1:size(1)>> -> {                                  
+
+                                    #(1, <<<<0:size(1)>>:bits, ret_bits:bits>>)
+                                }
+
+                                <<0:size(1)>> -> {
+
+                                    #(0, <<<<1:size(1)>>:bits, ret_bits:bits>>)
+
+                                }
+                                
+                                _ -> {
+
+                                    //invalid state
+                                    panic as "bit wasnt 1 or 0"
+                                }
+                            }
+                        }
+
+                        False -> {
+
+                            case carry {
+
+                                //x + y + 0 cases
+                                1 -> {
+
+                                    case curr_bit {
+
+                                        <<1:size(1)>> -> {                                  
+                                            #(1, <<<<0:size(1)>>:bits, ret_bits:bits>>)
+                                        }
+
+                                        <<0:size(1)>> -> {
+
+                                            #(0, <<<<1:size(1)>>:bits, ret_bits:bits>>)
+
+                                        }
+                                        
+                                        _ -> {
+
+                                            //invalid state
+                                            panic as "bit wasnt 1 or 0"
+                                        }
+                                    }
+
+                                }
+
+                                0 -> {
+
+                                    case curr_bit {
+
+                                        <<1:size(1)>> -> {                                  
+
+                                            #(0, <<<<1:size(1)>>:bits, ret_bits:bits>>)
+                                        }
+
+                                        <<0:size(1)>> -> {
+
+                                            #(0, <<<<0:size(1)>>:bits, ret_bits:bits>>)
+
+                                        }
+                                        
+                                        _ -> {
+
+                                            //invalid state
+                                            panic as "bit wasnt 1 or 0"
+                                        }
+                                    }
+
+                                }
+                                _ -> {
+
+                                    //invalid state
+                                    panic as "bit wasnt 1 or 0"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            parse_bits(curr_idx + 1, t_idx, car, ret, rest)
+
+        }
+
+        _ -> {
+
+            ret_bits
+        }
+    }
+}
 
 pub fn get_id_from_table_idx(t_idx: Int, b: BitArray) -> BitArray {
 
-    let ret_bit_array = <<>> 
-    let carry = 0
-    let #(_, k_array) = list.range(0, 159)
-    |> list.fold(#(carry, ret_bit_array), fn(acc, a) {
-                               
-                                   let assert Ok(curr_bit) = bit_array.slice(b, {159 - a}, 1)
+    let ret = parse_bits(0, t_idx, 0, <<>>, b)
 
-                                   let #(carry, arr) = acc
+    echo ret
 
-                                   case a < {t_idx - 1} {
+    echo "above is ret"
 
-                                        True -> {
-                                            
-                                            #(0, <<curr_bit:bits, arr:bits>>)
-                                        }
-
-                                        False -> {
-
-                                            case a == {t_idx - 1} {
-                                                
-                                                //0 + y + 1 cases
-
-                                                True -> {
-
-                                                    case curr_bit {
-
-                                                        <<1:size(1)>> -> {                                  
-
-                                                            #(1, <<<<0:size(1)>>:bits, arr:bits>>)
-                                                        }
-
-                                                        <<0:size(1)>> -> {
-
-                                                            #(0, <<<<1:size(1)>>:bits, arr:bits>>)
-
-                                                        }
-                                                        
-                                                        _ -> {
-
-                                                            //invalid state
-                                                            panic as "bit wasnt 1 or 0"
-                                                        }
-                                                    }
-                                                }
-
-                                                False -> {
-
-                                                    case carry {
-
-                                                        //x + y + 0 cases
-                                                        1 -> {
-
-                                                            case curr_bit {
-
-                                                                <<1:size(1)>> -> {                                  
-                                                                    #(1, <<<<0:size(1)>>:bits, arr:bits>>)
-                                                                }
-
-                                                                <<0:size(1)>> -> {
-
-                                                                    #(0, <<<<1:size(1)>>:bits, arr:bits>>)
-
-                                                                }
-                                                                
-                                                                _ -> {
-
-                                                                    //invalid state
-                                                                    panic as "bit wasnt 1 or 0"
-                                                                }
-                                                            }
-
-                                                        }
-
-                                                        0 -> {
-
-                                                            case curr_bit {
-
-                                                                <<1:size(1)>> -> {                                  
-
-                                                                    #(0, <<<<1:size(1)>>:bits, arr:bits>>)
-                                                                }
-
-                                                                <<0:size(1)>> -> {
-
-                                                                    #(0, <<<<0:size(1)>>:bits, arr:bits>>)
-
-                                                                }
-                                                                
-                                                                _ -> {
-
-                                                                    //invalid state
-                                                                    panic as "bit wasnt 1 or 0"
-                                                                }
-                                                            }
-
-
-                                                        }
-                                                        _ -> {
-
-                                                            //invalid state
-                                                            panic as "bit wasnt 1 or 0"
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                               }
-       )
-
-    echo k_array
-    k_array
-
+    ret
 }
