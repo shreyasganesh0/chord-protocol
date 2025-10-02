@@ -17,6 +17,8 @@ import utls
 
 type NodeMessage {
 
+    DisplayTable
+
     RequestMessage
 
     StartBackgroundTasks
@@ -168,7 +170,7 @@ fn init(
     let hash = crypto.hash_chunk(hasher, bit_array.from_string(node_id))
     |> crypto.digest
 
-    echo hash
+//    echo hash
 
     let init_state = NodeState(
                         seen_reqs: 0,
@@ -192,10 +194,25 @@ fn handle_node(
 
     case msg {
 
+        DisplayTable -> {
+
+            let s_nodeid = bit_array.inspect(state.node_id)
+            io.println("Printing table for node: " <> s_nodeid <> "\n\n------")
+            io.println("| Table Idx | Successor Node ")
+            dict.each(state.finger, fn(k, v) {
+                                        let NodeIdentity(_node_sub, node_id) = v
+                                        let s_nodeid = bit_array.inspect(node_id)
+                                        io.println("|         " <> int.to_string(k) <> " | " <> s_nodeid)
+                                    }
+            )
+
+            actor.continue(state)
+        }
+
         RequestMessage -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in req msg")
+            //io.println("[NODE]: " <> s_nodeid  <> " in req msg")
 
             let new_state = NodeState(
                                 ..state,
@@ -219,13 +236,14 @@ fn handle_node(
         StartBackgroundTasks -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
+            //io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
 
             process.send(state.self_sub, Stabilize) 
             process.send(state.self_sub, FixFingers)
             process.send(state.self_sub, CheckPredecessor)
-            process.send_after(state.self_sub, 1000, RequestMessage)
-            process.send_after(state.self_sub, 500, StartBackgroundTasks)
+            process.send_after(state.self_sub, 10000, RequestMessage)
+            process.send_after(state.self_sub, 10000, DisplayTable)
+            process.send_after(state.self_sub, 5000, StartBackgroundTasks)
 
             actor.continue(state)
         }
@@ -234,7 +252,7 @@ fn handle_node(
         Stabilize -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
+            //io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
 
             let assert Ok(NodeIdentity(successor_sub, _)) = dict.get(state.finger, 1)
 
@@ -246,7 +264,7 @@ fn handle_node(
 
         QueryPredecessor(send_sub) -> {
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in query pred")
+            //io.println("[NODE]: " <> s_nodeid  <> " in query pred")
 
             process.send(send_sub, StabilizeContd(state.predecessor))
 
@@ -257,7 +275,7 @@ fn handle_node(
         StabilizeContd(maybe_pred_node) -> {
 
             // let s_nodeid = bit_array.inspect(state.node_id)
-            // io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
+            // //io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
 
             let assert Ok(successor) = dict.get(state.finger, 1)
             let NodeIdentity(successor_sub, successor_id) = successor
@@ -299,7 +317,7 @@ fn handle_node(
         Notify(possible_pred_node) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in notify")
+            //io.println("[NODE]: " <> s_nodeid  <> " in notify")
 
             let new_state = case state.predecessor {
 
@@ -339,7 +357,7 @@ fn handle_node(
 
         FixFingers -> {
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
+            //io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
 
             let nxt = case state.next + 1 > state.m {
 
@@ -370,7 +388,7 @@ fn handle_node(
         UpdateFinger(table_id, node_val) -> {
 
             // let s_nodeid = bit_array.inspect(state.node_id)
-            // io.println("[NODE]: " <> s_nodeid  <> " in update fingers")
+            // //io.println("[NODE]: " <> s_nodeid  <> " in update fingers")
 
             let new_state = NodeState(
                                 ..state,
@@ -383,7 +401,7 @@ fn handle_node(
         CheckPredecessor -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in check pred")
+            //io.println("[NODE]: " <> s_nodeid  <> " in check pred")
 
             let new_state = case state.predecessor {
 
@@ -432,8 +450,7 @@ fn handle_node(
             let assert Ok(NodeIdentity(successor_sub, successor_id)) = dict.get(state.finger, 1)
             let s_successorid = bit_array.inspect(successor_id)
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " 
-            <> s_successorid <> " and checking search id " <> s_searchid)
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid)
     
 
             let lower_bound = bit_array.compare(search_id, state.node_id) == order.Gt
@@ -467,7 +484,8 @@ fn handle_node(
                                             NodeIdentity(state.self_sub, state.node_id),
                                             state.finger,
                                         )
-                    process.send(send_to_node, FindSuccessor(nxt, og_sub, search_id))
+                    process.send_after(send_to_node, 10000, FindSuccessor(nxt, og_sub, search_id))
+                    Nil
                 }
             }
 
@@ -478,7 +496,7 @@ fn handle_node(
         Create -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid <> " in create")
+            //io.println("[NODE]: " <> s_nodeid <> " in create")
 
             let new_state = NodeState(
                                 ..state,
@@ -497,7 +515,7 @@ fn handle_node(
         Join(chord_sub) -> {
             
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid <> " in create")
+            //io.println("[NODE]: " <> s_nodeid <> " in create")
 
             process.send(chord_sub, FindSuccessor(None, state.self_sub, state.node_id))
 
@@ -529,16 +547,29 @@ fn closest_preceding_node(
                                       //                             |> int.power(2, int.to_float(m))
 
                                       // let t_idx = float.round(curr_power)
+                                      case dict.get(finger, a) { 
 
-                                      let assert Ok(NodeIdentity(_curr_sub, curr_val)) = dict.get(finger, a) 
-                                      let lower_bound = bit_array.compare(curr_val, sender_id) == order.Gt
-                                      let upper_bound = bit_array.compare(curr_val, search_id) == order.Lt
+                                          Ok(NodeIdentity(_curr_sub, curr_val)) -> {
+                                              let lower_bound = bit_array.compare(curr_val, sender_id) == order.Gt
+                                              let upper_bound = bit_array.compare(curr_val, search_id) == order.Lt
 
-                                      case {lower_bound} && {upper_bound}{
+                                              case {lower_bound} && {upper_bound}{
 
-                                          True -> list.Stop(NodeIdentity(sender_sub, curr_val))
+                                                  True -> {
 
-                                          False -> list.Continue(sender_node)
+                                                      //io.println("[NODE]: " <> bit_array.inspect(sender_node.node_id) <> " hit stop")
+                                                      list.Stop(NodeIdentity(sender_sub, curr_val))
+                                                  }
+
+                                                  False -> list.Continue(sender_node)
+                                              }
+                                          }
+
+                                          Error(_) -> {
+
+                                              //have to check edge case to see if it continued till the end or stopped at the end
+                                              list.Continue(sender_node)
+                                          }
                                       }
                                   }
         )

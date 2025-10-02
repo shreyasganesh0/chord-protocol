@@ -126,9 +126,9 @@ pub fn get_id_from_table_idx(t_idx: Int, b: BitArray) -> BitArray {
 
     let ret = parse_bits(0, t_idx, 0, <<>>, b)
 
-    echo ret
+    //echo ret
 
-    echo "above is ret"
+    //echo "above is ret"
 
     ret
 }
