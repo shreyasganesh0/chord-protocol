@@ -14,6 +14,15 @@ import gleam/erlang/process
 
 import utls
 
+type SuccessorUpdateType {
+
+    KeySearch
+
+    UpdatePos(t_idx: Int)
+
+    UpdateSuccessor
+}
+
 type NodeMessage {
 
     DisplayTable
@@ -22,8 +31,13 @@ type NodeMessage {
 
     StartBackgroundTasks
 
+    FoundKey(
+            key_id: BitArray,
+            node_id: BitArray
+    )
+
     FindSuccessor(
-                table_id: Option(Int),
+                update_type: SuccessorUpdateType, 
                 sender_sub: process.Subject(NodeMessage),
                 search_id: BitArray
     )
@@ -67,6 +81,7 @@ type NodeState {
         finger: Dict(Int, NodeIdentity),
         predecessor: Option(NodeIdentity),
         self_sub: process.Subject(NodeMessage),
+        hasher: crypto.Hasher, 
     )
 }
 
@@ -101,29 +116,33 @@ pub fn make_system(
     let #(sup_builder, _sub_list) = case num_nodes > 1 {
 
         True -> {
-         list.range(1, num_nodes - 1)
-        |> list.fold(#(sup_build, sub_list), fn(acc, node_id) {
 
-                                            let #(builder, sub_list) = acc
-                                            
-                                            let res = start(
-                                                            hasher,
-                                                            int.to_string(node_id),
-                                                            num_reqs,
-                                                            m,
-                                                      )
-                                            let assert Ok(sub) = res 
+            list.range(1, num_nodes - 1)
+            |> list.fold(#(sup_build, sub_list), fn(acc, node_id) {
 
-                                            let sup_builder = supervisor.add(
-                                                                        builder,
-                                                                        supervision.worker(fn(){res}),
+                                                    let #(builder, sub_list) = acc
+                                                    
+                                                    let res = start(
+                                                                    hasher,
+                                                                    int.to_string(node_id),
+                                                                    num_reqs,
+                                                                    m,
                                                               )
+                                                    let assert Ok(sub) = res 
 
-                                            process.send(sub.data, Join(first_sub.data))
+                                                    let sup_builder = supervisor.add(
+                                                                                builder,
+                                                                                supervision.worker(fn(){
+                                                                                                    res
+                                                                                                   }
+                                                                                ),
+                                                                      )
 
-                                            #(sup_builder, [sub.data, ..sub_list])
-                                        }
-            )
+                                                    process.send(sub.data, Join(first_sub.data))
+
+                                                    #(sup_builder, [sub.data, ..sub_list])
+                                                }
+                )
         } 
 
         False -> {
@@ -179,6 +198,7 @@ fn init(
                         node_id: hash,
                         m: m,
                         next: 1,
+                        hasher: hasher,
                         finger: dict.new(),
                         predecessor: None,
                         self_sub: sub,
@@ -222,6 +242,13 @@ fn handle_node(
                                 seen_reqs: state.seen_reqs + 1,
                             )
 
+
+            let rand_search_key = int.random(160) |> int.to_string
+
+            let hash = crypto.hash_chunk(state.hasher, bit_array.from_string(rand_search_key))
+            |> crypto.digest
+
+            process.send(state.self_sub, FindSuccessor(KeySearch, state.self_sub, hash))
             // case new_state.seen_reqs < state.num_reqs {
             //
             //     True -> actor.continue(new_state)
@@ -239,7 +266,7 @@ fn handle_node(
         StartBackgroundTasks -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
+            //io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
 
             process.send(state.self_sub, Stabilize) 
             process.send(state.self_sub, FixFingers)
@@ -266,6 +293,7 @@ fn handle_node(
 
 
         QueryPredecessor(send_sub) -> {
+
             let s_nodeid = bit_array.inspect(state.node_id)
             io.println("[NODE]: " <> s_nodeid  <> " in query pred")
 
@@ -277,8 +305,8 @@ fn handle_node(
 
         StabilizeContd(maybe_pred_node) -> {
 
-            // let s_nodeid = bit_array.inspect(state.node_id)
-            // io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
+            let s_nodeid = bit_array.inspect(state.node_id)
+            io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
 
             let assert Ok(successor) = dict.get(state.finger, 1)
             let NodeIdentity(successor_sub, successor_id) = successor
@@ -363,7 +391,7 @@ fn handle_node(
         FixFingers -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
+            //io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
 
             let nxt = case state.next + 1 > state.m {
 
@@ -380,7 +408,7 @@ fn handle_node(
 
             let check_id = utls.get_id_from_table_idx(nxt, state.node_id)
             process.send(state.self_sub, FindSuccessor(
-                                            Some(nxt),
+                                            UpdatePos(nxt),
                                             state.self_sub,
                                             check_id, //have to add the next offset value to this
                                          )
@@ -431,7 +459,7 @@ fn handle_node(
         CheckPredecessor -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in check pred")
+            //io.println("[NODE]: " <> s_nodeid  <> " in check pred")
 
             let new_state = case state.predecessor {
 
@@ -472,53 +500,75 @@ fn handle_node(
             actor.continue(new_state)
         }
 
+        FoundKey(key_id, at_node_id) -> {
 
-        FindSuccessor(nxt, og_sub, search_id) -> {
+            let s_keyid = bit_array.inspect(key_id)
+            let s_nodeid = bit_array.inspect(at_node_id)
+            io.println("Found key: " <> s_keyid <> " at node: " <> s_nodeid)
+
+            actor.continue(state)
+        }
+
+
+        FindSuccessor(update_t, og_sub, search_id) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
             let s_searchid = bit_array.inspect(search_id)
             let assert Ok(NodeIdentity(successor_sub, successor_id)) = dict.get(state.finger, 1)
             let s_successorid = bit_array.inspect(successor_id)
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid)
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid)
     
 
             case utls.check_bounds(search_id, state.node_id, successor_id, False, True) {
 
                 True -> {
 
-                    case nxt {
+                    case update_t {
 
-                        None -> {
+                        KeySearch -> {
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx 1")
-                            process.send(og_sub,
-                            UpdateFinger(1, NodeIdentity(successor_sub, successor_id)))
+                            process.send(
+                                og_sub,
+                                FoundKey(search_id, successor_id)
+                            )
+
                         }
 
-                        Some(next) -> {
+                        UpdateSuccessor -> {
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx "<> int.to_string(next))
-                            process.send(og_sub,
-                            UpdateFinger(next, NodeIdentity(successor_sub, successor_id)))
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx 1")
+                            process.send(
+                                og_sub,
+                                UpdateFinger(1, NodeIdentity(successor_sub, successor_id))
+                            )
+                        }
+
+                        UpdatePos(next) -> {
+
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx "<> int.to_string(next))
+                            process.send(
+                                og_sub,
+                                UpdateFinger(next, NodeIdentity(successor_sub, successor_id))
+                            )
                         }
                     }
                 }
 
                 False -> {
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending to closest preceeding node")
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending to closest preceeding node")
                     let send_to_node = closest_preceding_node(
                                             search_id, 
                                             state.m,
                                             NodeIdentity(state.self_sub, state.node_id),
                                             state.finger,
                                         )
-                    process.send_after(send_to_node, 10000, FindSuccessor(nxt, og_sub, search_id))
+                    process.send_after(send_to_node, 10000, FindSuccessor(update_t, og_sub, search_id))
                     Nil
                 }
             }
-
+            
             actor.continue(state)
         }
 
@@ -547,7 +597,7 @@ fn handle_node(
             let s_nodeid = bit_array.inspect(state.node_id)
             io.println("[NODE]: " <> s_nodeid <> " in join")
 
-            process.send(chord_sub, FindSuccessor(None, state.self_sub, state.node_id))
+            process.send(chord_sub, FindSuccessor(UpdateSuccessor, state.self_sub, state.node_id))
 
             let new_state = NodeState(
                                 ..state,
