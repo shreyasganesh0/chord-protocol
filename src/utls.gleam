@@ -1,3 +1,6 @@
+import gleam/bit_array
+import gleam/order
+
 fn parse_bits(
     curr_idx: Int,
     t_idx: Int,
@@ -131,4 +134,32 @@ pub fn get_id_from_table_idx(t_idx: Int, b: BitArray) -> BitArray {
     //echo "above is ret"
 
     ret
+}
+
+
+pub fn check_bounds(search_id: BitArray, node_id: BitArray, successor_id: BitArray) -> Bool {
+
+    case bit_array.compare(node_id, successor_id) {
+
+        order.Gt -> {
+
+            let upper_bound = bit_array.compare(search_id, successor_id)|> order.to_int
+            let lower_bound = bit_array.compare(search_id, node_id) == order.Gt
+
+            lower_bound && {upper_bound <= 0}
+
+        }
+
+        order.Lt -> {
+
+            let lower_bound = bit_array.compare(search_id, node_id) == order.Gt
+            let upper_bound = bit_array.compare(search_id, successor_id) |> order.to_int
+
+            lower_bound || {upper_bound <= -1}
+        }
+
+        order.Eq -> {
+            True
+        }
+    }
 }
