@@ -137,29 +137,54 @@ pub fn get_id_from_table_idx(t_idx: Int, b: BitArray) -> BitArray {
 }
 
 
-pub fn check_bounds(search_id: BitArray, node_id: BitArray, successor_id: BitArray) -> Bool {
+pub fn check_bounds(
+    search_id: BitArray,
+    node_id: BitArray,
+    successor_id: BitArray,
+    li: Bool, 
+    ri: Bool,
+    ) -> Bool {
+
+    let upper_bound = bit_array.compare(search_id, successor_id)|> order.to_int
+    let lower_bound = bit_array.compare(search_id, node_id) |> order.to_int
+
+    let right_check = case ri {
+
+        False -> {
+
+            1
+        }
+
+        True -> {
+
+            0
+        }
+    }
+
+    let left_check = case li {
+
+        False -> {
+
+            -1
+        }
+
+        True -> {
+
+            0
+        }
+    }
 
     case bit_array.compare(node_id, successor_id) {
 
-        order.Gt -> {
-
-            let upper_bound = bit_array.compare(search_id, successor_id)|> order.to_int
-            let lower_bound = bit_array.compare(search_id, node_id) == order.Gt
-
-            lower_bound && {upper_bound <= 0}
-
-        }
 
         order.Lt -> {
 
-            let lower_bound = bit_array.compare(search_id, node_id) == order.Gt
-            let upper_bound = bit_array.compare(search_id, successor_id) |> order.to_int
-
-            lower_bound || {upper_bound <= -1}
+            {lower_bound >= left_check} || {upper_bound <= right_check}
         }
 
-        order.Eq -> {
-            True
+        _ -> {
+
+            {lower_bound >= left_check} && {upper_bound <= right_check}
         }
     }
 }

@@ -1,7 +1,6 @@
 import gleam/io
 import gleam/int
 import gleam/bit_array
-import gleam/order
 import gleam/list
 import gleam/crypto
 import gleam/option.{type Option, Some, None}
@@ -99,7 +98,7 @@ pub fn make_system(
     let sub_list: List(process.Subject(NodeMessage)) = [first_sub.data]
     process.send(first_sub.data, Create)
 
-    let #(sup_builder, sub_list) = case num_nodes > 1 {
+    let #(sup_builder, _sub_list) = case num_nodes > 1 {
 
         True -> {
          list.range(1, num_nodes - 1)
@@ -291,10 +290,8 @@ fn handle_node(
                 Some(pred_node) -> {
 
                     
-                    let lower_bound = bit_array.compare(pred_node.node_id, state.node_id) == order.Gt
-                    let upper_bound = bit_array.compare(pred_node.node_id, successor_id) == order.Lt
-
-                    case lower_bound && upper_bound {
+                    case utls.check_bounds(pred_node.node_id, state.node_id,
+                        successor_id, False, False) {
 
                         True -> {
 
@@ -325,16 +322,20 @@ fn handle_node(
 
             let new_state = case state.predecessor {
 
-                None -> {state}
+                None -> {
+
+                            NodeState(
+                                ..state,
+                                predecessor: Some(possible_pred_node),
+                            )
+                }
 
                 Some(node) -> {
 
                     let NodeIdentity(_pred_sub, pred_id) = node
 
-                    let lower_bound = bit_array.compare(possible_pred_node.node_id, pred_id) == order.Gt
-                    let upper_bound = bit_array.compare(possible_pred_node.node_id, pred_id) == order.Lt
-
-                    case {lower_bound} && {upper_bound} {
+                    case utls.check_bounds(possible_pred_node.node_id, pred_id, 
+                        state.node_id, False, False)  {
 
                        True -> {
 
@@ -482,7 +483,7 @@ fn handle_node(
             io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid)
     
 
-            case utls.check_bounds(search_id, state.node_id, successor_id) {
+            case utls.check_bounds(search_id, state.node_id, successor_id, False, True) {
 
                 True -> {
 
@@ -580,10 +581,9 @@ fn closest_preceding_node(
                                       case dict.get(finger, a) { 
 
                                           Ok(NodeIdentity(_curr_sub, curr_val)) -> {
-                                              let lower_bound = bit_array.compare(curr_val, sender_id) == order.Gt
-                                              let upper_bound = bit_array.compare(curr_val, search_id) == order.Lt
 
-                                              case {lower_bound} && {upper_bound}{
+                                              case utls.check_bounds(curr_val, sender_id,
+                                                search_id, False, False) {
 
                                                   True -> {
 
@@ -592,8 +592,8 @@ fn closest_preceding_node(
                                                   }
 
                                                   False -> list.Continue(sender_node)
-                                              }
-                                          }
+                                               }
+                                           }
 
                                           Error(_) -> {
 
