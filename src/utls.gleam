@@ -1,5 +1,6 @@
 import gleam/bit_array
 import gleam/order
+import gleam/io
 
 fn parse_bits(
     curr_idx: Int,
@@ -152,12 +153,12 @@ pub fn check_bounds(
 
         False -> {
 
-            1
+            upper_bound == -1
         }
 
         True -> {
 
-            0
+            upper_bound <= 0
         }
     }
 
@@ -165,26 +166,30 @@ pub fn check_bounds(
 
         False -> {
 
-            -1
+            lower_bound == 1
         }
 
         True -> {
 
-            0
+            lower_bound >= 0
         }
     }
 
     case bit_array.compare(node_id, successor_id) {
 
 
+        order.Gt -> {
+
+            io.println("hit wrap around case")
+            {left_check} || { right_check}
+        }
+
         order.Lt -> {
 
-            {lower_bound >= left_check} || {upper_bound <= right_check}
+            io.println("hit normal around case")
+            {left_check} && {right_check}
         }
 
-        _ -> {
-
-            {lower_bound >= left_check} && {upper_bound <= right_check}
-        }
+        order.Eq -> {True}
     }
 }
