@@ -23,7 +23,7 @@ pub fn main() -> Nil {
             Ok(#(num_nodes, num_reqs))
         }
 
-        _ -> Error(WrongArgCount(3))
+        _ -> Error(WrongArgCount(2))
     }
 
     case ret {
