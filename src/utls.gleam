@@ -180,13 +180,13 @@ pub fn check_bounds(
 
         order.Gt -> {
 
-            io.println("hit wrap around case")
+            //io.println("hit wrap around case")
             {left_check} || { right_check}
         }
 
         order.Lt -> {
 
-            io.println("hit normal around case")
+            //io.println("hit normal around case")
             {left_check} && {right_check}
         }
 
