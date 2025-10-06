@@ -1,6 +1,10 @@
 import gleam/bit_array
 import gleam/order
 import gleam/io
+import gleam/int
+import gleam/float
+
+import bigi
 
 fn parse_bits(
     curr_idx: Int,
@@ -126,9 +130,27 @@ fn parse_bits(
     }
 }
 
+fn big_int_calc(t_idx: Int, b: BitArray) -> BitArray {
+
+    let assert Ok(bigi_id) = bigi.from_bytes(b, bigi.BigEndian, bigi.Unsigned)
+
+    let bigi_two = bigi.from_int(2)
+    
+    let bigi_add_op = bigi.bitwise_shift_left(bigi_two, {t_idx - 1})
+    let bigi_mod_op = bigi.bitwise_shift_left(bigi_two, {160})
+
+    let assert Ok(ret) = bigi.add(bigi_id, bigi_add_op) 
+    |> bigi.modulo(bigi_mod_op)
+    |> bigi.to_bytes(bigi.BigEndian, bigi.Unsigned, {160 / 8})
+
+    ret
+}
+
 pub fn get_id_from_table_idx(t_idx: Int, b: BitArray) -> BitArray {
 
-    let ret = parse_bits(0, t_idx, 0, <<>>, b)
+    //let ret = parse_bits(0, t_idx, 0, <<>>, b)
+
+    let ret = big_int_calc(t_idx, b)
 
     //echo ret
 
@@ -136,7 +158,6 @@ pub fn get_id_from_table_idx(t_idx: Int, b: BitArray) -> BitArray {
 
     ret
 }
-
 
 pub fn check_bounds(
     search_id: BitArray,
