@@ -348,6 +348,7 @@ fn handle_node(
                                                     state.m,
                                                     NodeIdentity(state.self_sub, state.node_id),
                                                     state.finger,
+                                                    state.successor_list,
                                                 )
                             process.send(send_to_node, FindSuccessor(update_t, og_sub, search_id, hops + 1))
                             Nil
@@ -779,6 +780,7 @@ fn handle_node(
                                                     state.m,
                                                     NodeIdentity(state.self_sub, state.node_id),
                                                     state.finger,
+                                                    state.successor_list,
                                                 )
                             process.send(send_to_node, FindSuccessor(update_t, og_sub, search_id, hops + 1))
                             Nil
@@ -844,19 +846,16 @@ fn closest_preceding_node(
     search_id: BitArray,
     m: Int,
     sender_node: NodeIdentity,
-    finger: Dict(Int, NodeIdentity)
+    finger: Dict(Int, NodeIdentity),
+    successor_list: List(NodeIdentity),
     ) -> process.Subject(NodeMessage) {
 
     let NodeIdentity(sender_sub, sender_id) = sender_node
 
-    let NodeIdentity(ret_sub, _) = list.range(m, 1)
-    |> list.fold_until(sender_node, fn(sender_node, a) {
+    let found_flag = False
+    let #(NodeIdentity(ret_sub, _), found_flag) = list.range(m, 1)
+    |> list.fold_until(#(sender_node, found_flag), fn(sender_node, a) {
                                         
-                                      // let assert Ok(curr_power) = {int.power(2, int.to_float(a - 1)) 
-                                      //                             +. int.to_float(curr_id)}
-                                      //                             |> int.power(2, int.to_float(m))
-
-                                      // let t_idx = float.round(curr_power)
                                       case dict.get(finger, a) { 
 
                                           Ok(NodeIdentity(curr_sub, curr_val)) -> {
@@ -867,7 +866,7 @@ fn closest_preceding_node(
                                                   True -> {
 
                                                       //io.println("[NODE]: " <> bit_array.inspect(sender_node.node_id) <> " hit stop")
-                                                      list.Stop(NodeIdentity(curr_sub, curr_val))
+                                                      list.Stop(#(NodeIdentity(curr_sub, curr_val), True))
                                                   }
 
                                                   False -> list.Continue(sender_node)
@@ -876,12 +875,41 @@ fn closest_preceding_node(
 
                                           Error(_) -> {
 
-                                              //have to check edge case to see if it continued till the end or stopped at the end
                                               list.Continue(sender_node)
                                           }
                                       }
                                   }
         )
+    case found_flag {
+
+        True -> ret_sub
+
+        False -> {
+
+            let NodeIdentity(ret_sub, _ ) = list.fold_until(successor_list, sender_node, fn(acc, curr_node) {
+
+                                                       let NodeIdentity(curr_sub, curr_val) = curr_node
+
+                                                       case utls.check_bounds(curr_val, sender_id, 
+                                                        search_id, False, False) {
+
+                                                           True -> {
+
+                                                                list.Stop(curr_node)
+                                                            }
+
+                                                            False -> {
+
+                                                                list.Continue(acc)
+                                                            }
+                                                       }
+                                                   }
+            )
+
+            ret_sub
+        }
+    }
+
 
     ret_sub
 }
