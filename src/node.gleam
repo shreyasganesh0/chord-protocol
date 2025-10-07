@@ -21,7 +21,7 @@ type SuccessorUpdateType {
 
     UpdatePos(t_idx: Int)
 
-    UpdateSuccessor
+    UpdateSuccessor(added_successors: Int, successor_list: List(NodeIdentity))
 }
 
 type NodeMessage {
@@ -31,6 +31,8 @@ type NodeMessage {
     RequestMessage
 
     StartBackgroundTasks
+
+    UpdateSuccessorList(successor_list: List(NodeIdentity))
 
     FoundKey(
             key_id: BitArray,
@@ -49,7 +51,11 @@ type NodeMessage {
 
     QueryPredecessor(send_sub: process.Subject(NodeMessage)) 
 
-    StabilizeContd(pred_node: Option(NodeIdentity)) 
+    StabilizeContd(pred_node: Option(NodeIdentity), successor_list: List(NodeIdentity)) 
+
+    SendSuccessorList(send_sub: process.Subject(NodeMessage))
+
+    ReconcileSuccessorList(successor_list: List(NodeIdentity), successor_node: NodeIdentity)
 
     Notify(possible_pred_node: NodeIdentity)
 
@@ -87,6 +93,7 @@ type NodeState {
         self_sub: process.Subject(NodeMessage),
         main_sub: process.Subject(Int),
         hasher: crypto.Hasher, 
+        successor_list: List(NodeIdentity),
     )
 }
 
@@ -218,6 +225,7 @@ fn init(
                         predecessor: None,
                         self_sub: sub,
                         main_sub: main_sub,
+                        successor_list: [],
                      )
     Ok(actor.initialised(init_state)
     |> actor.returning(sub))
@@ -242,12 +250,21 @@ fn handle_node(
 
                     let new_state = NodeState(
                                         ..state,
-                                        waiting_for_join: False,
                                         finger: dict.insert(state.finger, table_id, node_val),
                                     )
-                    process.send(node_val.node_sub, Notify(NodeIdentity(state.self_sub,state.node_id)))
-                    process.send(state.self_sub, StartBackgroundTasks)
 
+                    process.send(node_val.node_sub, Notify(NodeIdentity(state.self_sub, state.node_id)))
+                    actor.continue(new_state)
+                }
+
+                UpdateSuccessorList(successor_list) -> {
+
+                    let new_state = NodeState(
+                                        ..state,
+                                        successor_list: successor_list,
+                                    )
+
+                    process.send(state.self_sub, StartBackgroundTasks)
                     actor.continue(new_state)
                 }
 
@@ -260,38 +277,65 @@ fn handle_node(
 
                     //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid)
             
-
                     case utls.check_bounds(search_id, state.node_id, successor_id, False, True) {
 
                         True -> {
 
                             case update_t {
 
-                                KeySearch -> {
-
-                                    process.send(
-                                        og_sub,
-                                        FoundKey(search_id, successor_id, hops)
-                                    )
-
-                                }
-
-                                UpdateSuccessor -> {
+                                UpdateSuccessor(added_successors, successor_list) -> {
 
                     //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx 1")
-                                    process.send(
-                                        og_sub,
-                                        UpdateFinger(1, NodeIdentity(successor_sub, successor_id))
-                                    )
+                                    case added_successors < 3 {
+
+                                        True -> {
+
+                                            case added_successors == 0 {
+
+                                                True -> {
+
+                                                    process.send(
+                                                        og_sub,
+                                                        UpdateFinger(1, NodeIdentity(successor_sub, successor_id))
+                                                    )
+                                                }
+
+                                                False -> {
+
+                                                }
+                                            }
+
+                                            process.send(
+                                                successor_sub,
+                                                FindSuccessor(
+                                                    UpdateSuccessor(
+                                                        added_successors + 1, 
+                                                        list.append(
+                                                            successor_list,
+                                                            [NodeIdentity(
+                                                                successor_sub,
+                                                                successor_id
+                                                            )],
+                                                        )
+                                                    )
+                                                ,
+                                                    og_sub,
+                                                    state.node_id,
+                                                    1
+                                                )  
+                                            )
+                                        }
+
+                                        False -> {
+
+                                            process.send(og_sub, UpdateSuccessorList(successor_list))
+                                        }
+                                    }
                                 }
 
-                                UpdatePos(next) -> {
+                                _ -> {
 
-                    //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx "<> int.to_string(next))
-                                    process.send(
-                                        og_sub,
-                                        UpdateFinger(next, NodeIdentity(successor_sub, successor_id))
-                                    )
+                                    panic as "[ERROR]: should never get any message type other than update successor"
                                 }
                             }
                         }
@@ -419,13 +463,13 @@ fn handle_node(
                     let s_nodeid = bit_array.inspect(state.node_id)
                     //io.println("[NODE]: " <> s_nodeid  <> " in query pred")
 
-                    process.send(send_sub, StabilizeContd(state.predecessor))
+                    process.send(send_sub, StabilizeContd(state.predecessor, state.successor_list))
 
                     actor.continue(state)
                 }
 
 
-                StabilizeContd(maybe_pred_node) -> {
+                StabilizeContd(maybe_pred_node, successor_successor_list) -> {
 
                     let s_nodeid = bit_array.inspect(state.node_id)
                     //io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
@@ -433,17 +477,28 @@ fn handle_node(
                     let assert Ok(successor) = dict.get(state.finger, 1)
                     let NodeIdentity(successor_sub, successor_id) = successor
 
+                    let new_list = list.take(
+                                    successor_successor_list,
+                                    list.length(successor_successor_list) - 1
+                                   )
+
                     let new_state = case maybe_pred_node {
 
-                        None -> {state}  
+                        None -> {
+                            NodeState(
+                                ..state,
+                                successor_list: [successor, ..new_list],
+                            )
+                        }  
 
                         Some(pred_node) -> {
-
                             
                             case utls.check_bounds(pred_node.node_id, state.node_id,
                                 successor_id, False, False) {
 
                                 True -> {
+
+                                    process.send(pred_node.node_sub, SendSuccessorList(state.self_sub))
 
                                     NodeState(
                                         ..state,
@@ -453,7 +508,10 @@ fn handle_node(
 
                                 False -> {
 
-                                    state
+                                     NodeState(
+                                        ..state,
+                                        successor_list: [successor, ..new_list],
+                                     )
                                 }
                             }
                         }
@@ -465,6 +523,29 @@ fn handle_node(
                     actor.continue(new_state)
                 }
 
+                SendSuccessorList(send_sub) -> {
+
+                    process.send(send_sub, ReconcileSuccessorList(
+                                            state.successor_list,
+                                            NodeIdentity(state.self_sub, state.node_id)
+                                           )
+                    )
+                    actor.continue(state)
+                }
+
+                ReconcileSuccessorList(successor_list, successor) -> {
+                    let new_list = list.take(
+                                    successor_list,
+                                    list.length(successor_list) - 1
+                                   )
+                     let new_state = NodeState(
+                        ..state,
+                        successor_list: [successor, ..new_list],
+                     )
+
+                     actor.continue(new_state)
+
+                }
 
                 Notify(possible_pred_node) -> {
 
@@ -674,15 +755,6 @@ fn handle_node(
 
                                 }
 
-                                UpdateSuccessor -> {
-
-                    //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx 1")
-                                    process.send(
-                                        og_sub,
-                                        UpdateFinger(1, NodeIdentity(successor_sub, successor_id))
-                                    )
-                                }
-
                                 UpdatePos(next) -> {
 
                     //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx "<> int.to_string(next))
@@ -690,6 +762,11 @@ fn handle_node(
                                         og_sub,
                                         UpdateFinger(next, NodeIdentity(successor_sub, successor_id))
                                     )
+                                }
+
+                                _ -> {
+
+                                    panic as "[ERROR]: should never get any message type other than update successor"
                                 }
                             }
                         }
@@ -725,6 +802,7 @@ fn handle_node(
                                                     1,
                                                     NodeIdentity(state.self_sub, state.node_id),
                                                  ),
+                                        successor_list: [NodeIdentity(state.self_sub, state.node_id), ..state.successor_list],
                                     )
                     process.send(state.self_sub, StartBackgroundTasks)
                     actor.continue(new_state)
@@ -736,7 +814,15 @@ fn handle_node(
                     let s_nodeid = bit_array.inspect(state.node_id)
                     //io.println("[NODE]: " <> s_nodeid <> " in join")
 
-                    process.send(chord_sub, FindSuccessor(UpdateSuccessor, state.self_sub, state.node_id, 1))
+                    process.send(
+                        chord_sub,
+                        FindSuccessor(
+                            UpdateSuccessor(0, []),
+                            state.self_sub,
+                            state.node_id,
+                            1
+                        )
+                    )
 
                     let new_state = NodeState(
                                         ..state,
