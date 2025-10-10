@@ -17,6 +17,13 @@ pub fn main() -> Nil {
 
     let ret = case argv.load().arguments {
 
+        [numnodes, numreqs] -> {
+
+            use num_nodes <- result.try(result.map_error(int.parse(numnodes), fn(_) {InvalidArgs}))
+            use num_reqs <- result.try(result.map_error(int.parse(numreqs), fn(_) {InvalidArgs}))
+            Ok(#(num_nodes, num_reqs, "", 0.0, 1000))
+        }
+
         [numnodes, numreqs, faultt, faultrate, tout] -> {
 
             use num_nodes <- result.try(result.map_error(int.parse(numnodes), fn(_) {InvalidArgs}))

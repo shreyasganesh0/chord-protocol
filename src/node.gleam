@@ -470,7 +470,11 @@ fn handle_node(
 
         False, InjectFault(timeout) -> {
 
-            process.sleep(timeout)
+
+            let s_nodeid = bit_array.inspect(state.node_id)
+            io.println("[NODE]: " <> s_nodeid <>" sleeping due to fault...\n")
+            process.sleep_forever()
+            //process.sleep(timeout)
             actor.continue(state)
         }
 
@@ -486,6 +490,16 @@ fn handle_node(
                                     }
             )
 
+            io.println("\n--------------\n")
+            io.println("++++++++++++++++\n\n[NODE]: " <> s_nodeid <>" Printing successor list...\n")
+            io.println("| Table Idx | Successor Node ")
+            list.each(state.successor_list, fn(a) {
+
+                                            let #(k, NodeIdentity(_, node_id)) = a
+                                            let s_nodeid = bit_array.inspect(node_id)
+                                            io.println("|         " <> int.to_string(k) <> " | " <> s_nodeid)
+                                            }  
+            )
             io.println("\n--------------\n")
 
             actor.continue(state)
@@ -523,7 +537,7 @@ fn handle_node(
             process.send_after(state.self_sub, 1000, Stabilize(0)) 
             process.send_after(state.self_sub, 1000, FixFingers)
             process.send_after(state.self_sub, 1000, CheckPredecessor)
-            //process.send_after(state.self_sub, 10000, DisplayTable)
+            process.send_after(state.self_sub, 10000, DisplayTable)
 
             case {state.fault_rate} > 0 && {state.fault_rate} <= {int.random(101) + 1} {
 
