@@ -153,10 +153,10 @@ pub fn make_system(
                                 supervision.worker(fn(){res}),
                       )
 
-    let sub_list: List(process.Subject(NodeMessage)) = [first_sub.data]
+    let sub_list: List(process.Subject(NodeMessage)) = []
     process.send(first_sub.data, Create)
 
-    let #(sup_builder, _sub_list) = case num_nodes > 1 {
+    let #(sup_builder, sub_list) = case num_nodes > 1 {
 
         True -> {
 
@@ -199,11 +199,30 @@ pub fn make_system(
     }
     let _ = supervisor.start(sup_builder)
 
+    process.spawn(fn() {
+            //fault injection process
+                      list.each(sub_list, fn(a) {
+                                              
+
+                                            case {fault_rate} > 0 && {fault_rate} <= {int.random(101) + 1} {
+
+                                                True -> {
+                                                    let jitter = {int.random(10) * 100} + int.random(10)
+                                                    process.send_after(a, jitter, InjectFault(timeout)) 
+                                                    Nil 
+                                                }
+
+                                                False -> Nil
+                                            }
+                                          }
+                      )
+                  }
+    )
     let nodes_hops = 0
     let sum = list.range(1, num_nodes)
     |> list.fold(nodes_hops, fn(acc, _a) {
 
-                            let assert Ok(hops) = process.receive(main_sub, 10000000)
+                            let assert Ok(hops) = process.receive(main_sub, 100000)
 
                             acc + hops
                         }
@@ -473,8 +492,7 @@ fn handle_node(
 
             let s_nodeid = bit_array.inspect(state.node_id)
             io.println("[NODE]: " <> s_nodeid <>" sleeping due to fault...\n")
-            process.sleep_forever()
-            //process.sleep(timeout)
+            process.sleep(timeout)
             actor.continue(state)
         }
 
@@ -537,16 +555,8 @@ fn handle_node(
             process.send_after(state.self_sub, 1000, Stabilize(0)) 
             process.send_after(state.self_sub, 1000, FixFingers)
             process.send_after(state.self_sub, 1000, CheckPredecessor)
-            process.send_after(state.self_sub, 10000, DisplayTable)
+            //process.send_after(state.self_sub, 10000, DisplayTable)
 
-            case {state.fault_rate} > 0 && {state.fault_rate} <= {int.random(101) + 1} {
-
-                True -> {
-                    process.send(state.self_sub, InjectFault(state.timeout)) 
-                }
-
-                False -> Nil
-            }
             case state.num_reqs > state.seen_reqs {
                     True -> {
                         process.send_after(state.self_sub, 1000, RequestMessage)

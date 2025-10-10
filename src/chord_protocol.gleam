@@ -40,7 +40,7 @@ pub fn main() -> Nil {
 
                                     _ -> Error(InvalidArgs)
                                 }
-                            } ()
+                            }()
                            )
             use fault_rate <- result.try(result.map_error(float.parse(faultrate), fn(_) {InvalidArgs}))
             use timeout <- result.try(result.map_error(int.parse(tout), fn(_) {InvalidArgs}))
