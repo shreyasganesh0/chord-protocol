@@ -2,7 +2,7 @@ import gleam/io
 import gleam/int
 import gleam/bit_array
 import gleam/list
-import gleam/order
+//import gleam/order
 import gleam/crypto
 import gleam/option.{type Option, Some, None}
 import gleam/dict.{type Dict}
@@ -21,7 +21,7 @@ type SuccessorUpdateType {
 
     UpdatePos(t_idx: Int)
 
-    UpdateSuccessor(added_successors: Int, successor_list:  List(#(Int, NodeIdentity)))
+    UpdateSuccessor
 }
 
 type NodeMessage {
@@ -32,7 +32,9 @@ type NodeMessage {
 
     StartBackgroundTasks
 
-    UpdateSuccessorList(successor_list: NodeIdentity)
+    InjectFault(timeout: Int)
+
+    InitJoinSuccessor(successor: NodeIdentity)
 
     FoundKey(
             key_id: BitArray,
@@ -65,8 +67,6 @@ type NodeMessage {
         successor: NodeIdentity,
     )
     
-    Pong
-
     Stabilize(successor_list_idx: Int)
 
     QueryPredecessor(send_sub: process.Subject(NodeMessage), successor: NodeIdentity) 
@@ -110,6 +110,8 @@ type NodeState {
         m: Int,
         next: Int,
         hops_sum: Int,
+        fault_rate: Int, 
+        timeout: Int,
         waiting_for_join: Bool,
         node_id: BitArray,
         finger: Dict(Int, NodeIdentity),
@@ -124,6 +126,8 @@ type NodeState {
 pub fn make_system(
     num_nodes: Int,
     num_reqs: Int,
+    fault_rate: Int, 
+    timeout: Int,
     ) {
 
     let main_sub = process.new_subject()
@@ -140,6 +144,8 @@ pub fn make_system(
                     num_reqs,
                     main_sub,
                     m,
+                    fault_rate, 
+                    timeout,
               )
     let assert Ok(first_sub) = res 
     let sup_build = supervisor.add(
@@ -165,6 +171,8 @@ pub fn make_system(
                                                                     num_reqs,
                                                                     main_sub,
                                                                     m,
+                                                                    fault_rate, 
+                                                                    timeout,
                                                               )
                                                     let assert Ok(sub) = res 
 
@@ -193,7 +201,7 @@ pub fn make_system(
 
     let nodes_hops = 0
     let sum = list.range(1, num_nodes)
-    |> list.fold(nodes_hops, fn(acc, a) {
+    |> list.fold(nodes_hops, fn(acc, _a) {
 
                             let assert Ok(hops) = process.receive(main_sub, 10000000)
 
@@ -210,10 +218,19 @@ fn start(
     num_reqs: Int,
     main_sub: process.Subject(Int),
     m: Int,
+    fault_rate: Int, 
+    timeout: Int,
     ) -> actor.StartResult(process.Subject(NodeMessage)) {
 
     actor.new_with_initialiser(1000, fn(sub) {init( 
-                                                sub, hasher, node_id, num_reqs, main_sub, m
+                                                sub, 
+                                                hasher, 
+                                                node_id, 
+                                                num_reqs, 
+                                                main_sub, 
+                                                m, 
+                                                fault_rate, 
+                                                timeout
                                                 )
                                      }
     )
@@ -228,6 +245,8 @@ fn init(
     num_reqs: Int,
     main_sub: process.Subject(Int),
     m: Int,
+    fault_rate: Int, 
+    timeout: Int,
     ) ->  Result(actor.Initialised(NodeState, NodeMessage, process.Subject(NodeMessage)), String) {
 
     let hash = crypto.hash_chunk(hasher, bit_array.from_string(node_id))
@@ -249,6 +268,8 @@ fn init(
                         self_sub: sub,
                         main_sub: main_sub,
                         successor_list: [],
+                        fault_rate: fault_rate,
+                        timeout: timeout,
                      )
     Ok(actor.initialised(init_state)
     |> actor.returning(sub))
@@ -265,7 +286,7 @@ fn successor_timeout_handler(
 
     process.send(to_sub, send_message) 
 
-    case process.receive(proc_sub, 10000) {
+    case process.receive(proc_sub, 500) {
 
         Ok(message) -> {
 
@@ -389,12 +410,12 @@ fn handle_node(
                             )
                         }
 
-                        UpdateSuccessor(added_successors, successor_list) -> {
+                        UpdateSuccessor -> {
 
             io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx 1")
 
                             process.send(og_sub,
-                                UpdateSuccessorList(NodeIdentity(successor_sub, successor_id))
+                                InitJoinSuccessor(successor)
                             )
                         }
                     }
@@ -433,7 +454,7 @@ fn handle_node(
             actor.continue(new_state)
         }
 
-        True, UpdateSuccessorList(successor) -> {
+        True, InitJoinSuccessor(successor) -> {
 
             let new_state = NodeState(
                                 ..state,
@@ -446,6 +467,12 @@ fn handle_node(
             actor.continue(new_state)
         }
 // ----------------------------------------------------------------------------------------------------
+
+        False, InjectFault(timeout) -> {
+
+            process.sleep(timeout)
+            actor.continue(state)
+        }
 
         False, DisplayTable -> {
 
@@ -496,6 +523,16 @@ fn handle_node(
             process.send_after(state.self_sub, 1000, Stabilize(0)) 
             process.send_after(state.self_sub, 1000, FixFingers)
             process.send_after(state.self_sub, 1000, CheckPredecessor)
+            //process.send_after(state.self_sub, 10000, DisplayTable)
+
+            case {state.fault_rate} > 0 && {state.fault_rate} <= {int.random(101) + 1} {
+
+                True -> {
+                    process.send(state.self_sub, InjectFault(state.timeout)) 
+                }
+
+                False -> Nil
+            }
             case state.num_reqs > state.seen_reqs {
                     True -> {
                         process.send_after(state.self_sub, 1000, RequestMessage)
@@ -504,7 +541,6 @@ fn handle_node(
 
                     False -> Nil
             }
-            process.send_after(state.self_sub, 10000, DisplayTable)
             actor.continue(state)
         }
 
@@ -871,7 +907,7 @@ fn handle_node(
             process.send(
                 chord_sub,
                 FindSuccessor(
-                    UpdateSuccessor(0, []),
+                    UpdateSuccessor,
                     state.self_sub,
                     state.node_id,
                     1,
@@ -905,7 +941,7 @@ fn closest_preceding_node(
     successor_list: List(#(Int, NodeIdentity)),
     ) -> process.Subject(NodeMessage) {
 
-    let NodeIdentity(sender_sub, sender_id) = sender_node
+    let NodeIdentity(_, sender_id) = sender_node
 
     let found_flag = False
     let #(NodeIdentity(ret_sub, _), found_flag) = list.range(m, 1)
@@ -941,14 +977,16 @@ fn closest_preceding_node(
 
         False -> {
 
-            let #(_, NodeIdentity(ret_sub, _ )) = list.fold_until(successor_list, #(0, sender_node), fn(acc, curr_node) {
+            let #(_, NodeIdentity(ret_sub, _ )) = list.fold_until(
+                                                    successor_list,
+                                                    #(0, sender_node),
+                                                    fn(acc, curr_node) {
 
-                                                       let #(_, NodeIdentity(curr_sub, curr_val)) = curr_node
+                                                        let #(_, NodeIdentity(_, curr_val)) = curr_node
+                                                        case utls.check_bounds(curr_val, sender_id, 
+                                                            search_id, False, False) {
 
-                                                       case utls.check_bounds(curr_val, sender_id, 
-                                                        search_id, False, False) {
-
-                                                           True -> {
+                                                            True -> {
 
                                                                 list.Stop(curr_node)
                                                             }
@@ -958,8 +996,8 @@ fn closest_preceding_node(
                                                                 list.Continue(acc)
                                                             }
                                                        }
-                                                   }
-            )
+                                                    }
+                                                 )
 
             ret_sub
         }
