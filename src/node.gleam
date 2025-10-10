@@ -330,19 +330,19 @@ fn handle_node(
         _, FindSuccessor(update_t, og_sub, search_id, hops, successor_list_idx) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
+            //io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
 
             let successor = case list.key_find(state.successor_list, successor_list_idx) {
 
                 Ok(successor) -> {
 
-                    io.println("[NODE]: " <> s_nodeid  <> " in stabilize success for id " <> int.to_string(successor_list_idx))
+                    //io.println("[NODE]: " <> s_nodeid  <> " in stabilize success for id " <> int.to_string(successor_list_idx))
                     successor
                 }
 
                 Error(_) -> {
 
-                    io.println("[NODE]: " <> s_nodeid  <> " in stabilize default to 0 for id " <> int.to_string(successor_list_idx))
+                    //io.println("[NODE]: " <> s_nodeid  <> " in stabilize default to 0 for id " <> int.to_string(successor_list_idx))
                     let assert Ok(successor) = list.key_find(state.successor_list, 0)
                     successor
                 }
@@ -402,7 +402,7 @@ fn handle_node(
             let s_nodeid = bit_array.inspect(state.node_id)
             let s_searchid = bit_array.inspect(search_id)
             let s_successorid = bit_array.inspect(successor_id)
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid)
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid)
     
 
             case utls.check_bounds(search_id, state.node_id, successor_id, False, True) { 
@@ -422,7 +422,7 @@ fn handle_node(
 
                         UpdatePos(next) -> {
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx "<> int.to_string(next))
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx "<> int.to_string(next))
                             process.send(
                                 og_sub,
                                 UpdateFinger(next, NodeIdentity(successor_sub, successor_id))
@@ -431,7 +431,7 @@ fn handle_node(
 
                         UpdateSuccessor -> {
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx 1")
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending update finger for t_idx 1")
 
                             process.send(og_sub,
                                 InitJoinSuccessor(successor)
@@ -442,7 +442,7 @@ fn handle_node(
 
                 False -> {
 
-            io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending to closest preceeding node")
+            //io.println("[NODE]: " <> s_nodeid <> " in find_successor using successor id " <> s_successorid <> " and checking search id " <> s_searchid <> " sending to closest preceeding node")
                     let send_to_node = closest_preceding_node(
                                             search_id, 
                                             state.m,
@@ -461,7 +461,7 @@ fn handle_node(
         _, UpdateFinger(table_id, node_val) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in update fingers")
+            //io.println("[NODE]: " <> s_nodeid  <> " in update fingers")
 
 
             let new_state = NodeState(
@@ -491,7 +491,7 @@ fn handle_node(
 
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid <>" sleeping due to fault...\n")
+            //io.println("[NODE]: " <> s_nodeid <>" sleeping due to fault...\n")
             process.sleep(timeout)
             actor.continue(state)
         }
@@ -499,26 +499,26 @@ fn handle_node(
         False, DisplayTable -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("++++++++++++++++\n\n[NODE]: " <> s_nodeid <>" Printing table...\n")
-            io.println("| Table Idx | Successor Node ")
+            //io.println("++++++++++++++++\n\n[NODE]: " <> s_nodeid <>" Printing table...\n")
+            //io.println("| Table Idx | Successor Node ")
             dict.each(state.finger, fn(k, v) {
                                         let NodeIdentity(_node_sub, node_id) = v
                                         let s_nodeid = bit_array.inspect(node_id)
-                                        io.println("|         " <> int.to_string(k) <> " | " <> s_nodeid)
+                                        //io.println("|         " <> int.to_string(k) <> " | " <> s_nodeid)
                                     }
             )
 
-            io.println("\n--------------\n")
-            io.println("++++++++++++++++\n\n[NODE]: " <> s_nodeid <>" Printing successor list...\n")
-            io.println("| Table Idx | Successor Node ")
+            //io.println("\n--------------\n")
+            //io.println("++++++++++++++++\n\n[NODE]: " <> s_nodeid <>" Printing successor list...\n")
+            //io.println("| Table Idx | Successor Node ")
             list.each(state.successor_list, fn(a) {
 
                                             let #(k, NodeIdentity(_, node_id)) = a
                                             let s_nodeid = bit_array.inspect(node_id)
-                                            io.println("|         " <> int.to_string(k) <> " | " <> s_nodeid)
+                                            //io.println("|         " <> int.to_string(k) <> " | " <> s_nodeid)
                                             }  
             )
-            io.println("\n--------------\n")
+            //io.println("\n--------------\n")
 
             actor.continue(state)
         }
@@ -526,7 +526,7 @@ fn handle_node(
         False, RequestMessage -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in req msg")
+            //io.println("[NODE]: " <> s_nodeid  <> " in req msg")
 
             let rand_search_key = int.random(160) |> int.to_string
 
@@ -550,7 +550,7 @@ fn handle_node(
         False, StartBackgroundTasks -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
+            //io.println("[NODE]: " <> s_nodeid  <> " in start background tasks")
 
             process.send_after(state.self_sub, 1000, Stabilize(0)) 
             process.send_after(state.self_sub, 1000, FixFingers)
@@ -572,19 +572,19 @@ fn handle_node(
         False, Stabilize(successor_list_idx) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
+            //io.println("[NODE]: " <> s_nodeid  <> " in stabilize")
 
             let successor = case list.key_find(state.successor_list, successor_list_idx) {
 
                 Ok(successor) -> {
 
-                    io.println("[NODE]: " <> s_nodeid  <> " in stabilize found success for id " <> int.to_string(successor_list_idx))
+                    //io.println("[NODE]: " <> s_nodeid  <> " in stabilize found success for id " <> int.to_string(successor_list_idx))
                     successor
                 }
 
                 Error(_) -> {
 
-                    io.println("[NODE]: " <> s_nodeid  <> " in stabilize default to 0 for id " <> int.to_string(successor_list_idx))
+                    //io.println("[NODE]: " <> s_nodeid  <> " in stabilize default to 0 for id " <> int.to_string(successor_list_idx))
                     let assert Ok(successor) = list.key_find(state.successor_list, 0)
                     successor
                 }
@@ -616,7 +616,7 @@ fn handle_node(
         False, QueryPredecessor(send_sub, successor) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in query pred")
+            //io.println("[NODE]: " <> s_nodeid  <> " in query pred")
 
             process.send(send_sub, StabilizeContd(state.predecessor, state.successor_list, successor))
 
@@ -627,7 +627,7 @@ fn handle_node(
         False, StabilizeContd(maybe_pred_node, successor_successor_list, successor) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
+            //io.println("[NODE]: " <> s_nodeid  <> " in stabilizeCnt")
 
             let NodeIdentity(successor_sub, successor_id) = successor
 
@@ -721,7 +721,7 @@ fn handle_node(
         False, Notify(possible_pred_node) -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in notify")
+            //io.println("[NODE]: " <> s_nodeid  <> " in notify")
 
             let new_state = case state.predecessor {
 
@@ -766,7 +766,7 @@ fn handle_node(
         False, FixFingers -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
+            //io.println("[NODE]: " <> s_nodeid  <> " in fix fingers")
 
             let nxt = case state.next + 1 > state.m {
 
@@ -803,7 +803,7 @@ fn handle_node(
         False, CheckPredecessor -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid  <> " in check pred")
+            //io.println("[NODE]: " <> s_nodeid  <> " in check pred")
 
             let new_state = case state.predecessor {
 
@@ -855,7 +855,7 @@ fn handle_node(
 
             let new_hops_sum = hops + state.hops_sum
 
-            io.println("node: " <> s_nodeid <> " has seen " <> int.to_string(state.seen_reqs))
+            //io.println("node: " <> s_nodeid <> " has seen " <> int.to_string(state.seen_reqs))
 
             let new_state = case {state.seen_reqs + 1} == state.num_reqs {
 
@@ -902,7 +902,7 @@ fn handle_node(
         False, Create -> {
 
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid <> " in create")
+            //io.println("[NODE]: " <> s_nodeid <> " in create")
 
             let new_state = NodeState(
                                 ..state,
@@ -926,7 +926,7 @@ fn handle_node(
         False, Join(chord_sub) -> {
             
             let s_nodeid = bit_array.inspect(state.node_id)
-            io.println("[NODE]: " <> s_nodeid <> " in join")
+            //io.println("[NODE]: " <> s_nodeid <> " in join")
 
             process.send(
                 chord_sub,
