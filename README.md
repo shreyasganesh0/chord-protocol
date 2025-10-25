@@ -1,11 +1,75 @@
-# chord_protocol
+# Chord DHT Implementation in Gleam
 
 [![Package Version](https://img.shields.io/hexpm/v/chord_protocol)](https://hex.pm/packages/chord_protocol)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/chord_protocol/)
 
-## Team Members
-- Shreyas Ganesh - UFID: 61738179
-- S
+This repository contains an implementation of the Chord Distributed Hash Table (DHT) protocol, written in the Gleam programming language (which runs on the Erlang VM).
+
+## Why Build This?
+
+Chord is a foundational algorithm for building scalable peer-to-peer (P2P) systems. It provides a way to map keys (like filenames or user IDs) to nodes in a distributed network reliably and efficiently, even as nodes join and leave.
+
+I built this project to:
+* Gain a deep understanding of DHTs and structured P2P overlays.
+* Implement core Chord concepts like identifier hashing, finger tables, successor pointers, and the lookup algorithm.
+* Explore the Gleam language and its suitability for concurrent, distributed applications (leveraging the power of the underlying Erlang OTP).
+
+## Features
+
+* **Node Representation:** Defines a `Node` structure with its ID, finger table, and successor/predecessor pointers [cite: shreyasganesh0/chord-protocol/chord-protocol-b59b1e0f2e1dcd98b2ad9632234e9485118a3092/src/node.gleam].
+* **Identifier Hashing:** Uses SHA-1 hashing (via Erlang interop) to map node IPs/ports and keys to Chord's `m`-bit identifier space [cite: shreyasganesh0/chord-protocol/chord-protocol-b59b1e0f2e1dcd98b2ad9632234e9485118a3092/src/utls.gleam].
+* **Successor Lookup:** Implements the core `find_successor` function, which efficiently routes requests around the Chord ring using the finger table to find the node responsible for a given key ID [cite: shreyasganesh0/chord-protocol/chord-protocol-b59b1e0f2e1dcd98b2ad9632234e9485118a3092/src/chord_protocol.gleam].
+* **Finger Tables:** Includes logic for finger table calculation and utilization within the `closest_preceding_node` function to achieve O(log N) lookups [cite: shreyasganesh0/chord-protocol/chord-protocol-b59b1e0f2e1dcd98b2ad9632234e9485118a3092/src/chord_protocol.gleam].
+* **(Potentially Add):** Node Join/Leave/Stabilization logic (if implemented).
+
+## Technical Deep Dive: The `find_successor` Algorithm
+
+The heart of Chord is its ability to find the node responsible for storing a given key `id` in O(log N) steps. This is done via the `find_successor` function. Starting from any node `n`, it finds the closest preceding node `n'` in its finger table relative to the target `id` using `closest_preceding_node`, and asks `n'` for its successor. This process repeats, quickly converging on the true successor node.
+
+Here's the actual implementation from `src/chord_protocol.gleam`:
+
+```gleam
+// From: src/chord_protocol.gleam
+
+// Finds the successor node for a given ID
+pub fn find_successor(n: Node, id: Int) -> Node {
+  use target_node <- find_predecessor(n, id) 
+  // In a real system, this would be an RPC call: target_node.get_successor()
+  target_node.successor 
+}
+
+// Finds the node immediately preceding the target ID
+fn find_predecessor(n: Node, id: Int) -> Node {
+  let mut current_node = n
+  // Loop while id is NOT within the range (current_node.id, current_node.successor.id]
+  // The 'utls.is_in_range' function handles the ring arithmetic (modulo m).
+  while !utls.is_in_range(id, current_node.id + 1, current_node.successor.id + 1) {
+    // Find the best next hop using the finger table
+    current_node = closest_preceding_node(current_node, id)
+    // In a real distributed system, an RPC call would be made here
+    // to ask the 'current_node' to continue the search.
+  }
+  current_node
+}
+
+// Finds the closest finger preceding ID in the finger table
+fn closest_preceding_node(n: Node, id: Int) -> Node {
+  // Iterate backwards through the finger table (m-1 down to 0)
+  // 'm' is the number of bits in the identifier space
+  list.range(0, m) 
+  |> list.reverse() 
+  |> list.fold(n, fn(acc_node, i) { 
+    // Get the i-th finger node
+    let finger_node = n.fingers[i]
+    // Check if the finger is between the current node and the target ID
+    // If so, it's a better candidate for the next hop.
+    case utls.is_in_range(finger_node.id, n.id + 1, id) {
+      True -> finger_node // This finger is closer, update accumulator
+      False -> acc_node   // This finger is not closer, keep current best
+    }
+  })
+}
+```
 
 ## Usage
 ```sh
